@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CBC Ballistic Calculator</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow" data-i18n="eyebrow">Create: Big Cannons</p>
+          <h1 data-i18n="title">Ballistic calculator</h1>
+        </div>
+        <div class="lang-switch" aria-label="Language">
+          <button type="button" data-lang="en">EN</button>
+          <button type="button" data-lang="ru">RU</button>
+          <button type="button" data-lang="uk">UA</button>
+        </div>
+      </header>
+
+      <section class="layout">
+        <form id="calcForm" class="panel input-panel">
+          <div class="section-head">
+            <h2 data-i18n="shotSetup">Shot setup</h2>
+            <button class="ghost" type="button" id="resetBtn" data-i18n="reset">Reset</button>
+          </div>
+
+          <div class="grid two">
+            <label>
+              <span data-i18n="barrelLength">Total cannon length</span>
+              <input id="length" type="number" min="0" step="0.1" value="8">
+              <small data-i18n="blocks">blocks / meters</small>
+            </label>
+            <label>
+              <span data-i18n="velocityMps">Projectile speed</span>
+              <input id="speedMps" type="number" min="0" step="1" value="160">
+              <small data-i18n="mpsHint">m/s</small>
+            </label>
+          </div>
+
+          <label>
+            <span data-i18n="method">Method</span>
+            <select id="method">
+              <option value="original">Оригінальна Ballistics.lua</option>
+              <option value="improved">Improved (projectile-aware)</option>
+            </select>
+          </label>
+
+          <label>
+            <span data-i18n="projectileType">Projectile type</span>
+            <select id="projectile"></select>
+          </label>
+
+          <div class="grid two">
+            <label>
+              <span data-i18n="distance">Horizontal distance</span>
+              <input id="distance" type="number" min="0" step="1" value="300">
+              <small data-i18n="distanceHint">from cannon to target</small>
+            </label>
+            <label>
+              <span data-i18n="heightDelta">Target height delta</span>
+              <input id="heightDelta" type="number" step="1" value="0">
+              <small data-i18n="heightHint">target Y minus cannon Y</small>
+            </label>
+          </div>
+
+          <label class="check" style="align-items:center;">
+            <input id="useCoords" type="checkbox">
+            <span data-i18n="useCoordinates">Use coordinates</span>
+          </label>
+
+          <div id="coordsGroup" style="display:none;">
+            <div class="grid two">
+              <label>
+                <span data-i18n="cannonCoords">Cannon (X,Y,Z)</span>
+                <div style="display:flex;gap:8px;">
+                  <input id="cannonX" type="number" step="0.1" value="0" placeholder="X">
+                  <input id="cannonY" type="number" step="0.1" value="0" placeholder="Y">
+                  <input id="cannonZ" type="number" step="0.1" value="0" placeholder="Z">
+                </div>
+              </label>
+              <label>
+                <span data-i18n="targetCoords">Target (X,Y,Z)</span>
+                <div style="display:flex;gap:8px;">
+                  <input id="targetX" type="number" step="0.1" value="300" placeholder="X">
+                  <input id="targetY" type="number" step="0.1" value="0" placeholder="Y">
+                  <input id="targetZ" type="number" step="0.1" value="0" placeholder="Z">
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <details class="details">
+            <summary>
+              <span data-i18n="details">Detailed config</span>
+              <span class="chevron">+</span>
+            </summary>
+
+            <div class="detail-grid">
+              <label>
+                <span data-i18n="preferArc">Preferred arc</span>
+                <select id="preferArc">
+                  <option value="low" data-i18n="lowArc">Low</option>
+                  <option value="high" data-i18n="highArc">High</option>
+                </select>
+              </label>
+              <label>
+                <span data-i18n="amin">Minimum pitch</span>
+                <input id="amin" type="number" step="0.1" value="-30">
+              </label>
+              <label>
+                <span data-i18n="amax">Maximum pitch</span>
+                <input id="amax" type="number" step="0.1" value="80">
+              </label>
+              <label>
+                <span data-i18n="gravity">Legacy gravity</span>
+                <input id="gravity" type="number" step="0.001" value="0.05">
+              </label>
+              <label>
+                <span data-i18n="drag">Legacy drag</span>
+                <input id="drag" type="number" step="0.001" value="0.99">
+              </label>
+
+              <label class="method-improved">
+                <span data-i18n="mass">Mass (kg)</span>
+                <input id="mass" type="number" step="0.01" value="10">
+              </label>
+              <label class="method-improved">
+                <span data-i18n="radius">Radius (m)</span>
+                <input id="radius" type="number" step="0.001" value="0.05">
+              </label>
+              <label class="method-improved">
+                <span data-i18n="cd">Drag coefficient (C_d)</span>
+                <input id="cd" type="number" step="0.01" value="0.47">
+              </label>
+              <label class="method-improved check">
+                <input id="useQuadratic" type="checkbox" checked>
+                <span data-i18n="useQuadratic">Use quadratic drag</span>
+              </label>
+              <label>
+                <span data-i18n="maxDelta">Max time error</span>
+                <input id="maxDelta" type="number" step="0.01" value="1">
+              </label>
+              <label>
+                <span data-i18n="maxSteps">Max ticks</span>
+                <input id="maxSteps" type="number" min="1" step="1" value="1200">
+              </label>
+              <label>
+                <span data-i18n="iterations">Refine iterations</span>
+                <input id="iterations" type="number" min="1" step="1" value="5">
+              </label>
+              <label>
+                <span data-i18n="elements">Samples per refine</span>
+                <input id="elements" type="number" min="2" step="1" value="20">
+              </label>
+              <label class="check">
+                <input id="checkImpossible" type="checkbox" checked>
+                <span data-i18n="checkImpossible">Reject impossible results</span>
+              </label>
+            </div>
+          </details>
+        </form>
+
+        <section class="panel output-panel">
+          <div class="section-head">
+            <h2 data-i18n="result">Result</h2>
+            <span id="status" class="status"></span>
+          </div>
+
+          <div class="solution-card primary">
+            <span data-i18n="chosenPitch">Chosen pitch</span>
+            <strong id="chosenPitch">-</strong>
+          </div>
+
+          <div class="metrics">
+            <div>
+              <span data-i18n="lowSolution">Low solution</span>
+              <strong id="lowPitch">-</strong>
+            </div>
+            <div>
+              <span data-i18n="highSolution">High solution</span>
+              <strong id="highPitch">-</strong>
+            </div>
+            <div>
+              <span data-i18n="flightTime">Flight time</span>
+              <strong id="flightTime">-</strong>
+            </div>
+            <div>
+              <span data-i18n="speedBpt">Speed</span>
+              <strong id="speedBpt">-</strong>
+            </div>
+            <div>
+              <span data-i18n="yaw">Yaw</span>
+              <strong id="yaw">-</strong>
+            </div>
+            <div>
+              <span data-i18n="usedMethod">Used method</span>
+              <strong id="usedMethod">-</strong>
+            </div>
+          </div>
+
+          <canvas id="trajectory" width="900" height="360" aria-label="Trajectory preview"></canvas>
+          <pre id="debug"></pre>
+        </section>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>
