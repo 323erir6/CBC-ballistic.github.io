@@ -629,6 +629,10 @@ function collectOptions() {
   const targetZ = $("targetZ") ? num("targetZ") : 0;
 
   const horiz = Math.sqrt((targetX - cannonX) ** 2 + (targetZ - cannonZ) ** 2);
+  // clamp amax to +60 (don't change amin)
+  const aminVal = num("amin");
+  const amaxRaw = num("amax");
+  const amaxVal = Number.isFinite(amaxRaw) ? Math.min(amaxRaw, 60) : 60;
 
   return {
     projectile: $("projectile").value,
@@ -638,8 +642,8 @@ function collectOptions() {
     distance: useCoords ? horiz : num("distance"),
     heightDelta: useCoords ? (targetY - cannonY) : num("heightDelta"),
     preferArc: $("preferArc").value,
-    amin: num("amin"),
-    amax: num("amax"),
+    amin: aminVal,
+    amax: amaxVal,
     gravity: num("gravity"),
     drag: num("drag"),
     maxDelta: num("maxDelta"),
@@ -675,18 +679,41 @@ function render() {
 
   if (method === "original") {
     result = calculatePitch(cannon, target, opts.speedBpt, opts.length, opts);
-    preferred = opts.preferArc === "high" ? result.high : result.low;
-    fallback = opts.preferArc === "high" ? result.low : result.high;
-    chosen = preferred[1] !== -1 ? preferred : fallback;
+
+    // classify arcs: if two distinct degrees exist, the larger degree is high arc; if only one degree exists,
+    // then it's high if >45°, otherwise low.
+    function classifyArcs(l, h) {
+      const lDeg = l[1];
+      const hDeg = h[1];
+      let lowArc = [-1, -1, -1];
+      let highArc = [-1, -1, -1];
+      const hasL = lDeg !== -1;
+      const hasH = hDeg !== -1;
+      if (hasL && hasH && lDeg !== hDeg) {
+        if (lDeg < hDeg) { lowArc = l; highArc = h; } else { lowArc = h; highArc = l; }
+      } else if (hasL || hasH) {
+        const only = hasL ? l : h;
+        if (only[1] > 45) highArc = only; else lowArc = only;
+      }
+      return { low: lowArc, high: highArc };
+    }
+
+    const classified = classifyArcs(result.low, result.high);
+    const lowArc = classified.low;
+    const highArc = classified.high;
+
+    // choose preferred arc if available
+    const preferredArc = opts.preferArc === "high" ? highArc : lowArc;
+    const fallbackArc = opts.preferArc === "high" ? lowArc : highArc;
+    chosen = preferredArc[1] !== -1 ? preferredArc : fallbackArc;
     ok = result.ok && chosen[1] !== -1;
 
     setStatus(ok ? t("solved") : t("noSolution"), ok ? "ok" : "bad");
-    $("chosenPitch").textContent = ok ? `${fmt(chosen[1], 4)}°` : "-";
-    $("lowPitch").textContent = result.low[1] !== -1 ? `${fmt(result.low[1], 4)}°` : "-";
-    $("highPitch").textContent = result.high[1] !== -1 ? `${fmt(result.high[1], 4)}°` : "-";
-    $("flightTime").textContent = ok ? `${fmt(chosen[2], 2)} ticks / ${fmt(chosen[2] / TICKS_PER_SECOND, 2)} s` : "-";
+    $("chosenPitch").textContent = ok && chosen[1] !== -1 ? `${fmt(chosen[1], 4)}°` : "-";
+    $("lowPitch").textContent = lowArc[1] !== -1 ? `${fmt(lowArc[1], 4)}°` : "-";
+    $("highPitch").textContent = highArc[1] !== -1 ? `${fmt(highArc[1], 4)}°` : "-";
+    $("flightTime").textContent = ok && chosen[2] !== -1 ? `${fmt(chosen[2], 2)} ticks / ${fmt(chosen[2] / TICKS_PER_SECOND, 2)} s` : "-";
     $("speedBpt").textContent = `${fmt(opts.speedBpt, 4)} m/tick`;
-    $("yaw").textContent = "-90°";
     $("usedMethod").textContent = t("originalFormula");
 
     pathObj = ok ? buildLegacyPath(chosen[1], chosen[2], opts) : null;
@@ -723,18 +750,41 @@ function render() {
     };
 
     result = calculatePitchImproved(cannon, target, opts.speedBpt, opts.length, opts, props);
-    preferred = opts.preferArc === "high" ? result.high : result.low;
-    fallback = opts.preferArc === "high" ? result.low : result.high;
-    chosen = preferred[1] !== -1 ? preferred : fallback;
+
+    // classify arcs: if two distinct degrees exist, the larger degree is high arc; if only one degree exists,
+    // then it's high if >45°, otherwise low.
+    function classifyArcs(l, h) {
+      const lDeg = l[1];
+      const hDeg = h[1];
+      let lowArc = [-1, -1, -1];
+      let highArc = [-1, -1, -1];
+      const hasL = lDeg !== -1;
+      const hasH = hDeg !== -1;
+      if (hasL && hasH && lDeg !== hDeg) {
+        if (lDeg < hDeg) { lowArc = l; highArc = h; } else { lowArc = h; highArc = l; }
+      } else if (hasL || hasH) {
+        const only = hasL ? l : h;
+        if (only[1] > 45) highArc = only; else lowArc = only;
+      }
+      return { low: lowArc, high: highArc };
+    }
+
+    const classified = classifyArcs(result.low, result.high);
+    const lowArc = classified.low;
+    const highArc = classified.high;
+
+    // choose preferred arc if available
+    const preferredArc = opts.preferArc === "high" ? highArc : lowArc;
+    const fallbackArc = opts.preferArc === "high" ? lowArc : highArc;
+    chosen = preferredArc[1] !== -1 ? preferredArc : fallbackArc;
     ok = result.ok && chosen[1] !== -1;
 
     setStatus(ok ? t("solved") : t("noSolution"), ok ? "ok" : "bad");
-    $("chosenPitch").textContent = ok ? `${fmt(chosen[1], 4)}°` : "-";
-    $("lowPitch").textContent = result.low[1] !== -1 ? `${fmt(result.low[1], 4)}°` : "-";
-    $("highPitch").textContent = result.high[1] !== -1 ? `${fmt(result.high[1], 4)}°` : "-";
-    $("flightTime").textContent = ok ? `${fmt(chosen[2], 2)} ticks / ${fmt(chosen[2] / TICKS_PER_SECOND, 2)} s` : "-";
+    $("chosenPitch").textContent = ok && chosen[1] !== -1 ? `${fmt(chosen[1], 4)}°` : "-";
+    $("lowPitch").textContent = lowArc[1] !== -1 ? `${fmt(lowArc[1], 4)}°` : "-";
+    $("highPitch").textContent = highArc[1] !== -1 ? `${fmt(highArc[1], 4)}°` : "-";
+    $("flightTime").textContent = ok && chosen[2] !== -1 ? `${fmt(chosen[2], 2)} ticks / ${fmt(chosen[2] / TICKS_PER_SECOND, 2)} s` : "-";
     $("speedBpt").textContent = `${fmt(opts.speedBpt, 4)} m/tick`;
-    $("yaw").textContent = "-90°";
     $("usedMethod").textContent = t("improvedMethod");
 
     pathObj = ok ? buildImprovedPath(chosen[1], chosen[2], opts, props) : null;
@@ -760,6 +810,18 @@ function render() {
     debugObj.target = target;
   }
 
+  // compute yaw: show actual yaw when using coordinates, otherwise leave empty
+  if (opts.useCoords) {
+    const dxYaw = target[0] - cannon[0];
+    const dzYaw = target[2] - cannon[2];
+    // invert yaw: make right negative, left positive by negating atan2 result
+    let yawDeg = -Math.atan2(dxYaw, dzYaw) * 180 / Math.PI; // 0 = +Z
+    if (yawDeg >= 180) yawDeg -= 360;
+    if (yawDeg < -180) yawDeg += 360;
+    $("yaw").textContent = `${fmt(yawDeg, 4)}°`;
+  } else {
+    $("yaw").textContent = "";
+  }
   drawTrajectory(ok ? pathObj : null, opts);
   $("debug").textContent = JSON.stringify(debugObj, null, 2);
 }
@@ -785,9 +847,27 @@ function buildLegacyPath(pitchDeg, ticks, opts) {
 }
 
 function clearOutputs() {
-  ["chosenPitch", "lowPitch", "highPitch", "flightTime", "speedBpt", "yaw", "usedMethod"].forEach((id) => {
+  ["chosenPitch", "lowPitch", "highPitch", "flightTime", "speedBpt", "usedMethod"].forEach((id) => {
     $(id).textContent = "-";
   });
+  const yawEl = $("yaw");
+  const useCoordsEl = $("useCoords");
+  const useCoords = useCoordsEl ? useCoordsEl.checked : false;
+  if (useCoords && yawEl) {
+    const cannonX = $("cannonX") ? num("cannonX") : 0;
+    const cannonZ = $("cannonZ") ? num("cannonZ") : 0;
+    const targetX = $("targetX") ? num("targetX") : num("distance");
+    const targetZ = $("targetZ") ? num("targetZ") : 0;
+    const dxYaw = targetX - cannonX;
+    const dzYaw = targetZ - cannonZ;
+    // invert yaw: make right negative, left positive by negating atan2 result
+    let yawDeg = -Math.atan2(dxYaw, dzYaw) * 180 / Math.PI; // 0 = +Z
+    if (yawDeg >= 180) yawDeg -= 360;
+    if (yawDeg < -180) yawDeg += 360;
+    yawEl.textContent = `${fmt(yawDeg, 4)}°`;
+  } else if (yawEl) {
+    yawEl.textContent = "";
+  }
   $("debug").textContent = "";
 }
 
