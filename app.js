@@ -97,6 +97,8 @@ const I18N = {
     speedBpt: "Speed",
     yaw: "Yaw",
     usedMethod: "Used method",
+    currentDistance: "Current distance",
+    maxDistance: "Max distance",
     noSolution: "No solution",
     solved: "Solved",
     invalid: "Invalid input",
@@ -146,6 +148,8 @@ const I18N = {
     speedBpt: "Скорость",
     yaw: "Yaw",
     usedMethod: "Метод",
+    currentDistance: "Текущая дистанция",
+    maxDistance: "Максимальная дистанция",
     noSolution: "Нет решения",
     solved: "Рассчитано",
     invalid: "Некорректный ввод",
@@ -195,6 +199,8 @@ const I18N = {
     speedBpt: "Швидкість",
     yaw: "Yaw",
     usedMethod: "Метод",
+    currentDistance: "Поточна дистанція",
+    maxDistance: "Максимальна дистанція",
     noSolution: "Немає рішення",
     solved: "Розраховано",
     invalid: "Некоректний ввід",
@@ -674,6 +680,17 @@ function render() {
     target = opts.target;
   }
 
+  // show current distance when coordinates are used
+  const currentDistEl = $("currentDistance");
+  if (currentDistEl) {
+    if (opts.useCoords) {
+      const horizNow = Math.sqrt((target[0] - cannon[0]) ** 2 + (target[2] - cannon[2]) ** 2);
+      currentDistEl.textContent = `${fmt(horizNow, 3)}`;
+    } else {
+      currentDistEl.textContent = "-";
+    }
+  }
+
   const method = $("method") ? $("method").value : "original";
   let result, chosen, fallback, preferred, ok, debugObj, pathObj;
 
@@ -717,6 +734,14 @@ function render() {
     $("usedMethod").textContent = t("originalFormula");
 
     pathObj = ok ? buildLegacyPath(chosen[1], chosen[2], opts) : null;
+
+    // compute max distance for legacy method
+    try {
+      const maxRes = computeMaxDistance(opts, "original", null);
+      $("maxDistance").textContent = Number.isFinite(maxRes.maxDistance) ? `${fmt(maxRes.maxDistance, 3)}` : "-";
+    } catch (e) {
+      $("maxDistance").textContent = "-";
+    }
     debugObj = {
       source: "Lua/Artillery_all/Ballistics.lua",
       method: "original",
@@ -786,8 +811,15 @@ function render() {
     $("flightTime").textContent = ok && chosen[2] !== -1 ? `${fmt(chosen[2], 2)} ticks / ${fmt(chosen[2] / TICKS_PER_SECOND, 2)} s` : "-";
     $("speedBpt").textContent = `${fmt(opts.speedBpt, 4)} m/tick`;
     $("usedMethod").textContent = t("improvedMethod");
-
     pathObj = ok ? buildImprovedPath(chosen[1], chosen[2], opts, props) : null;
+
+    // compute max distance for improved method (uses projectile props)
+    try {
+      const maxRes = computeMaxDistance(opts, "improved", props);
+      $("maxDistance").textContent = Number.isFinite(maxRes.maxDistance) ? `${fmt(maxRes.maxDistance, 3)}` : "-";
+    } catch (e) {
+      $("maxDistance").textContent = "-";
+    }
     debugObj = {
       source: "improved-method",
       method: "improved",
@@ -846,8 +878,89 @@ function buildLegacyPath(pitchDeg, ticks, opts) {
   return { path };
 }
 
+// simulate legacy physics until projectile returns to or below muzzle height, return horizontal distance
+function simulateLegacyRange(pitchDeg, speedBpt, length, opts) {
+  const pitch = rad(pitchDeg);
+  const vw = Math.cos(pitch) * speedBpt;
+  let vy = Math.sin(pitch) * speedBpt;
+  let y = Math.sin(pitch) * length;
+  const x0 = Math.cos(pitch) * length;
+  const maxTicks = Math.max(1, Math.floor(opts.maxSteps || 1200));
+
+  for (let tick = 1; tick <= maxTicks; tick += 1) {
+    y += vy;
+    vy = opts.drag * vy - opts.gravity;
+    const x = x0 + vw * (1 - opts.drag ** tick) / (1 - opts.drag);
+    if (y <= 0) return { hit: true, x, ticks: tick };
+  }
+
+  const xEnd = x0 + vw * (1 - opts.drag ** maxTicks) / (1 - opts.drag);
+  return { hit: false, x: xEnd, ticks: maxTicks };
+}
+
+// simulate improved physics until projectile returns to or below muzzle height, return horizontal distance
+function simulateImprovedRange(pitchDeg, speedBpt, length, opts, props) {
+  const pitch = rad(pitchDeg);
+  let vx = Math.cos(pitch) * speedBpt;
+  let vy = Math.sin(pitch) * speedBpt;
+  let y = Math.sin(pitch) * length;
+  let x = Math.cos(pitch) * length;
+  const maxTicks = Math.max(1, Math.floor(opts.maxSteps || 1200));
+
+  const rho = 1.225; // kg/m^3
+  const area = Math.PI * (props.radius ** 2);
+  const k_drag = (rho * props.cd * area) / (2 * props.mass);
+
+  for (let tick = 1; tick <= maxTicks; tick += 1) {
+    const vtot = Math.hypot(vx, vy);
+    if (vtot === 0) return { hit: false, x, ticks: tick };
+    const aDrag = props.useQuadratic ? k_drag * vtot * vtot : k_drag * vtot;
+    const dragX = (vx / vtot) * aDrag;
+    const dragY = (vy / vtot) * aDrag;
+
+    vy -= dragY;
+    vy -= opts.gravity;
+    vx -= dragX;
+
+    x += vx;
+    y += vy;
+    if (y <= 0) return { hit: true, x, ticks: tick };
+  }
+
+  return { hit: false, x, ticks: maxTicks };
+}
+
+function computeMaxDistance(opts, method = "original", props = null) {
+  const amin = opts.amin ?? -30;
+  const amax = opts.amax ?? 60;
+  const aminClamped = Math.max(-89, amin);
+  const amaxClamped = Math.min(89, amax);
+
+  let best = { x: -Infinity, p: null };
+
+  // coarse pass
+  const coarseStep = 1;
+  for (let p = aminClamped; p <= amaxClamped; p += coarseStep) {
+    const res = method === "improved" ? simulateImprovedRange(p, opts.speedBpt, opts.length, opts, props) : simulateLegacyRange(p, opts.speedBpt, opts.length, opts);
+    if (Number.isFinite(res.x) && res.x > best.x) best = { x: res.x, p };
+  }
+
+  // refine around best pitch
+  if (best.p === null) return { maxDistance: NaN, bestPitch: null };
+  const refineRange = 1;
+  const refineStep = 0.1;
+  const start = Math.max(aminClamped, best.p - refineRange);
+  const end = Math.min(amaxClamped, best.p + refineRange);
+  for (let p = start; p <= end; p += refineStep) {
+    const res = method === "improved" ? simulateImprovedRange(p, opts.speedBpt, opts.length, opts, props) : simulateLegacyRange(p, opts.speedBpt, opts.length, opts);
+    if (Number.isFinite(res.x) && res.x > best.x) best = { x: res.x, p };
+  }
+
+  return { maxDistance: best.x, bestPitch: best.p };
+}
+
 function clearOutputs() {
-  ["chosenPitch", "lowPitch", "highPitch", "flightTime", "speedBpt", "usedMethod"].forEach((id) => {
+  ["chosenPitch", "lowPitch", "highPitch", "flightTime", "speedBpt", "usedMethod", "currentDistance", "maxDistance"].forEach((id) => {
     $(id).textContent = "-";
   });
   const yawEl = $("yaw");
