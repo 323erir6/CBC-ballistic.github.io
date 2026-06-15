@@ -102,7 +102,8 @@ const I18N = {
     noSolution: "No solution",
     solved: "Solved",
     invalid: "Invalid input",
-    originalFormula: "Original Ballistics.lua",
+    originalFormula: "Old Ballistics.lua",
+    newFormula: "New Ballistics.lua",
     method: "Method",
     improvedMethod: "Improved (projectile-aware)",
     mass: "Mass (kg)",
@@ -153,7 +154,8 @@ const I18N = {
     noSolution: "Нет решения",
     solved: "Рассчитано",
     invalid: "Некорректный ввод",
-    originalFormula: "Оригинальная Ballistics.lua",
+    originalFormula: "Старый Ballistics.lua",
+    newFormula: "Новая Ballistics.lua",
     method: "Метод",
     improvedMethod: "Improved (с учётом типа снаряда)",
     mass: "Масса (кг)",
@@ -204,7 +206,8 @@ const I18N = {
     noSolution: "Немає рішення",
     solved: "Розраховано",
     invalid: "Некоректний ввід",
-    originalFormula: "Оригінальна Ballistics.lua",
+    originalFormula: "Старий Ballistics.lua",
+    newFormula: "Новий Ballistics.lua",
     method: "Метод",
     improvedMethod: "Поліпшений (враховує тип снаряду)",
     mass: "Маса (кг)",
@@ -416,6 +419,178 @@ function calculatePitch(cannon, target, speed, length, opts) {
     ok: r1[1] !== -1 || r2[1] !== -1
   };
 }
+// New Ballistics (ported from New_Ballistics.lua)
+function timeInAirNew(y0, yTarget, vy, gravity = 0.05, drag = 0.99, maxSteps = 1000000) {
+  let t = 0;
+  let tBelow = Infinity;
+
+  if (y0 < yTarget) {
+    while (t < maxSteps) {
+      const yPrev = y0;
+      y0 = y0 + vy;
+      vy = drag * vy - gravity;
+      t += 1;
+      if (y0 > yTarget) {
+        tBelow = t - 1 + (yTarget - yPrev) / (y0 - yPrev);
+        break;
+      }
+      if (y0 - yPrev < 0) return [-1, -1];
+    }
+  }
+
+  while (t < maxSteps) {
+    const yPrev = y0;
+    y0 = y0 + vy;
+    vy = drag * vy - gravity;
+    t += 1;
+    if (y0 <= yTarget) {
+      const tFrac = t - 1 + (yPrev - yTarget) / (yPrev - y0);
+      return [tBelow, tFrac];
+    }
+  }
+
+  return [tBelow, -1];
+}
+
+function tryPitchNew(pitchDeg, speed, length, distance, cannon, target, gravity, drag, maxSteps) {
+  const pitch = rad(pitchDeg);
+  const Vw = Math.cos(pitch) * speed;
+  const Vy = Math.sin(pitch) * speed;
+  const L = length / 2;
+  const x = L * Math.cos(pitch);
+  if (Vw === 0) return null;
+
+  const current_drag = (drag === undefined || drag === null) ? 0.99 : drag;
+  const denom = (1 / (1 - current_drag)) * Vw;
+  const part = 1 - (distance - x) / denom;
+  if (part <= 0) return null;
+
+  const time_h = Math.abs(Math.log(part) / Math.log(current_drag));
+  const y_end = cannon[1] + Math.sin(pitch) * L;
+
+  const [t_below, t_above] = timeInAirNew(y_end, target[1], Vy, gravity, drag, maxSteps);
+  if (t_below < 0) return null;
+
+  const delta_t = Math.min(Math.abs(time_h - t_below), Math.abs(time_h - t_above));
+  return [delta_t, pitchDeg, delta_t + time_h];
+}
+
+function tryPitchesNew(pitchList, speed, length, distance, cannon, target, gravity, drag, maxSteps) {
+  const results = [];
+  for (const pitch of pitchList) {
+    const res = tryPitchNew(pitch, speed, length, distance, cannon, target, gravity, drag, maxSteps);
+    if (res) results.push(res);
+  }
+  return results;
+}
+
+function calculatePitchNew(cannon, target, speed, length, opts) {
+  const amin = opts.amin ?? -30;
+  const amax = opts.amax ?? 60;
+  const gravity = opts.gravity ?? 0.05;
+  const drag = opts.drag ?? 0.99;
+  const maxDelta = opts.maxDelta ?? 1.0;
+  const maxSteps = opts.maxSteps ?? 1000000;
+  const iterations = opts.iterations ?? 5;
+  const elements = opts.elements ?? 20;
+  const checkImpossible = opts.checkImpossible ?? true;
+
+  const dx = cannon[0] - target[0];
+  const dz = cannon[2] - target[2];
+  const distance = Math.sqrt(dx * dx + dz * dz);
+
+  const pitchList = [];
+  for (let i = amax; i >= amin; i -= 1) pitchList.push(i);
+  const guesses = tryPitchesNew(pitchList, speed, length, distance, cannon, target, gravity, drag, maxSteps);
+
+  if (guesses.length === 0) return { low: [-1, -1, -1], high: [-1, -1, -1], ok: false };
+
+  let r1 = getRoot(guesses, false);
+  let r2 = getRoot(guesses, true);
+  let p1 = r1[1];
+  let p2 = r2[1];
+  const same = p1 === p2;
+  let c1 = true;
+  let c2 = !same;
+
+  for (let i = 0; i < iterations; i += 1) {
+    const range = 10 ** (-i);
+    let dTs1 = [];
+    let dTs2 = [];
+
+    if (c1) {
+      dTs1 = tryPitchesNew(flinspace(p1 - range, p1 + range, elements, amin, amax), speed, length, distance, cannon, target, gravity, drag, maxSteps);
+      if (dTs1.length === 0) c1 = false;
+    }
+
+    if (c2) {
+      dTs2 = tryPitchesNew(flinspace(p2 - range, p2 + range, elements, amin, amax), speed, length, distance, cannon, target, gravity, drag, maxSteps);
+      if (dTs2.length === 0) c2 = false;
+    }
+
+    if (!c1 && !c2) return { low: [-1, -1, -1], high: [-1, -1, -1], ok: false };
+
+    if (c1) {
+      dTs1.sort((a, b) => a[0] - b[0]);
+      r1 = dTs1[0]; p1 = r1[1];
+    }
+    if (c2) {
+      dTs2.sort((a, b) => a[0] - b[0]);
+      r2 = dTs2[0]; p2 = r2[1];
+    }
+  }
+
+  if (same) r2 = r1;
+
+  if (checkImpossible && r1[0] > maxDelta) r1 = [-1, -1, -1];
+  if (checkImpossible && r2[0] > maxDelta) r2 = [-1, -1, -1];
+
+  return { low: r1, high: r2, ok: r1[1] !== -1 || r2[1] !== -1 };
+}
+
+function simulateNewRange(pitchDeg, speedBpt, length, opts) {
+  const pitch = rad(pitchDeg);
+  const Vw = Math.cos(pitch) * speedBpt;
+  let vy = Math.sin(pitch) * speedBpt;
+  const L = length / 2;
+  let y = Math.sin(pitch) * L;
+  const x0 = Math.cos(pitch) * L;
+  const maxTicks = Math.max(1, Math.floor(opts.maxSteps || 1200));
+
+  for (let tick = 1; tick <= maxTicks; tick += 1) {
+    // vertical: advance by current vy, then apply drag and gravity (matches Lua timeInAir)
+    y += vy;
+    vy = opts.drag * vy - opts.gravity;
+
+    // horizontal: closed-form geometric-series position for multiplicative drag
+    const x = x0 + Vw * (1 - Math.pow(opts.drag, tick)) / (1 - opts.drag);
+    if (y <= 0) return { hit: true, x, ticks: tick };
+  }
+
+  const xEnd = x0 + Vw * (1 - Math.pow(opts.drag, maxTicks)) / (1 - opts.drag);
+  return { hit: false, x: xEnd, ticks: maxTicks };
+}
+
+function buildNewPath(pitchDeg, ticks, opts) {
+  const pitch = rad(pitchDeg);
+  const vw = Math.cos(pitch) * opts.speedBpt;
+  let vy = Math.sin(pitch) * opts.speedBpt;
+  const L = opts.length / 2;
+  let y = Math.sin(pitch) * L;
+  const x0 = Math.cos(pitch) * L;
+  const path = [{ x: 0, y: 0 }, { x: x0, y }];
+  const maxTicks = Math.max(1, Math.ceil(Math.min(ticks || opts.maxSteps, opts.maxSteps)));
+
+  for (let tick = 1; tick <= maxTicks; tick += 1) {
+    const x = x0 + vw * (1 - Math.pow(opts.drag, tick)) / (1 - opts.drag);
+    y += vy;
+    vy = opts.drag * vy - opts.gravity;
+    path.push({ x, y });
+    if (x >= opts.distance) break;
+  }
+
+  return { path };
+}
 
 // --- Improved projectile-aware simulation ---
 function fillMethods() {
@@ -430,6 +605,10 @@ function fillMethods() {
   o2.value = "improved";
   o2.textContent = t("improvedMethod");
   sel.appendChild(o2);
+  const o3 = document.createElement("option");
+  o3.value = "new";
+  o3.textContent = t("newFormula");
+  sel.appendChild(o3);
   sel.value = sel.value || "original";
 }
 
@@ -452,12 +631,8 @@ function updateUIForMethod() {
   const projectileEl = $("projectile");
   const gravityEl = $("gravity") ? $("gravity").parentElement : null;
   const dragEl = $("drag") ? $("drag").parentElement : null;
-  if (method === "original") {
-    projectileEl.disabled = false;
-    improvedEls.forEach((el) => { el.style.display = "none"; });
-    if (gravityEl) gravityEl.style.display = "";
-    if (dragEl) dragEl.style.display = "";
-  } else {
+  // only show projectile-specific fields for the improved (projectile-aware) method
+  if (method === "improved") {
     projectileEl.disabled = false;
     improvedEls.forEach((el) => { el.style.display = ""; });
     // populate improved fields from projectile defaults if user hasn't changed them
@@ -470,6 +645,11 @@ function updateUIForMethod() {
     }
     if (gravityEl) gravityEl.style.display = "none";
     if (dragEl) dragEl.style.display = "none";
+  } else {
+    projectileEl.disabled = false;
+    improvedEls.forEach((el) => { el.style.display = "none"; });
+    if (gravityEl) gravityEl.style.display = "";
+    if (dragEl) dragEl.style.display = "";
   }
 }
 
@@ -765,6 +945,75 @@ function render() {
     };
     debugObj.cannon = cannon;
     debugObj.target = target;
+  } else if (method === "new") {
+    // new legacy-style method: uses the new Ballistics formula (ported from New_Ballistics.lua)
+    result = calculatePitchNew(cannon, target, opts.speedBpt, opts.length, opts);
+
+    function classifyArcsNew(l, h) {
+      const lDeg = l[1];
+      const hDeg = h[1];
+      let lowArc = [-1, -1, -1];
+      let highArc = [-1, -1, -1];
+      const hasL = lDeg !== -1;
+      const hasH = hDeg !== -1;
+      if (hasL && hasH && lDeg !== hDeg) {
+        if (lDeg < hDeg) { lowArc = l; highArc = h; } else { lowArc = h; highArc = l; }
+      } else if (hasL || hasH) {
+        const only = hasL ? l : h;
+        if (only[1] > 45) highArc = only; else lowArc = only;
+      }
+      return { low: lowArc, high: highArc };
+    }
+
+    const classifiedNew = classifyArcsNew(result.low, result.high);
+    const lowArcNew = classifiedNew.low;
+    const highArcNew = classifiedNew.high;
+
+    const preferredArcNew = opts.preferArc === "high" ? highArcNew : lowArcNew;
+    const fallbackArcNew = opts.preferArc === "high" ? lowArcNew : highArcNew;
+    chosen = preferredArcNew[1] !== -1 ? preferredArcNew : fallbackArcNew;
+    ok = result.ok && chosen[1] !== -1;
+
+    setStatus(ok ? t("solved") : t("noSolution"), ok ? "ok" : "bad");
+    $("chosenPitch").textContent = ok && chosen[1] !== -1 ? `${fmt(chosen[1], 4)}°` : "-";
+    $("lowPitch").textContent = lowArcNew[1] !== -1 ? `${fmt(lowArcNew[1], 4)}°` : "-";
+    $("highPitch").textContent = highArcNew[1] !== -1 ? `${fmt(highArcNew[1], 4)}°` : "-";
+    $("flightTime").textContent = ok && chosen[2] !== -1 ? `${fmt(chosen[2], 2)} ticks / ${fmt(chosen[2] / TICKS_PER_SECOND, 2)} s` : "-";
+    $("speedBpt").textContent = `${fmt(opts.speedBpt, 4)} m/tick`;
+    $("usedMethod").textContent = t("newFormula");
+
+    pathObj = ok ? buildNewPath(chosen[1], chosen[2], opts) : null;
+
+    try {
+      const maxRes = computeMaxDistance(opts, "new", null);
+      $("maxDistance").textContent = Number.isFinite(maxRes.maxDistance) ? `${fmt(maxRes.maxDistance, 3)}` : "-";
+    } catch (e) {
+      $("maxDistance").textContent = "-";
+    }
+
+    debugObj = {
+      source: "Lua/Artillery_all/New_Ballistics.lua",
+      method: "new",
+      projectile: opts.projectile,
+      note: "New Ballistics.lua (ported).",
+      velocityMps: opts.speedMps,
+      velocityBpt: opts.speedBpt,
+      low: result.low,
+      high: result.high,
+      selectedPitchDeg: ok ? chosen[1] : null,
+      parameters: {
+        length: opts.length,
+        gravity: opts.gravity,
+        drag: opts.drag,
+        maxDeltaError: opts.maxDelta,
+        maxSteps: opts.maxSteps,
+        numIterations: opts.iterations,
+        numElements: opts.elements,
+        checkImpossible: opts.checkImpossible
+      }
+    };
+    debugObj.cannon = cannon;
+    debugObj.target = target;
   } else if (method === "improved") {
     // improved method: use projectile properties
     const props = {
@@ -941,7 +1190,10 @@ function computeMaxDistance(opts, method = "original", props = null) {
   // coarse pass
   const coarseStep = 1;
   for (let p = aminClamped; p <= amaxClamped; p += coarseStep) {
-    const res = method === "improved" ? simulateImprovedRange(p, opts.speedBpt, opts.length, opts, props) : simulateLegacyRange(p, opts.speedBpt, opts.length, opts);
+    let res;
+    if (method === "improved") res = simulateImprovedRange(p, opts.speedBpt, opts.length, opts, props);
+    else if (method === "new") res = simulateNewRange(p, opts.speedBpt, opts.length, opts);
+    else res = simulateLegacyRange(p, opts.speedBpt, opts.length, opts);
     if (Number.isFinite(res.x) && res.x > best.x) best = { x: res.x, p };
   }
 
@@ -952,7 +1204,10 @@ function computeMaxDistance(opts, method = "original", props = null) {
   const start = Math.max(aminClamped, best.p - refineRange);
   const end = Math.min(amaxClamped, best.p + refineRange);
   for (let p = start; p <= end; p += refineStep) {
-    const res = method === "improved" ? simulateImprovedRange(p, opts.speedBpt, opts.length, opts, props) : simulateLegacyRange(p, opts.speedBpt, opts.length, opts);
+    let res;
+    if (method === "improved") res = simulateImprovedRange(p, opts.speedBpt, opts.length, opts, props);
+    else if (method === "new") res = simulateNewRange(p, opts.speedBpt, opts.length, opts);
+    else res = simulateLegacyRange(p, opts.speedBpt, opts.length, opts);
     if (Number.isFinite(res.x) && res.x > best.x) best = { x: res.x, p };
   }
 
