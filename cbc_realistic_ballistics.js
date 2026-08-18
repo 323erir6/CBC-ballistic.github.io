@@ -1,15 +1,15 @@
 "use strict";
 
-// CBC Realistic Ballistics 1.3.2 browser port
-// Patched:
-// 1) real projectile diameter is used (no 0.05 m minimum clamp)
-// 2) simulateToTarget interpolation uses current position -> next
-// 3) simulateRange interpolation uses current position -> next
+// Browser port of CBCRealisticBallistics 1.3.2. Keep constants and the
+// seed-derived wind hash identical to RealisticFlightModel.java.
 (function exposeCBCRealisticBallistics(global) {
   const TICKS_PER_SECOND = 20;
   const EARTH_ANGULAR_SPEED = 7.2921159e-5;
+  const MASK_64 = (1n << 64n) - 1n;
   const TWO_POW_53 = 9007199254740992;
 
+  // Every ballistic cannon family found in the 6.8.3 JAR set. Material and
+  // single/dual barrel variants which use identical ammunition are grouped.
   const CANNONS = [
     { id: "manual", name: "Custom / projectile native size", caliber: null },
     { id: "cbc_big_cannon", name: "CBC Big Cannon (all materials)", caliber: 0.875 },
@@ -36,6 +36,8 @@
     { id: "arcon_cannon", name: "ARCON Cannon", caliber: 0.120, velocityModel: "arcon" }
   ];
 
+  // Values below are the launch speeds used by the installed 6.8.3 mods.
+  // CBC works in blocks/tick, therefore all values are converted to m/s by x20.
   const MILITARY_DUAL_SPEED_BPT = {
     "cbcmoreshells:normal_ap_shot": 8,
     "cbcmoreshells:normal_ap_shell": 8,
@@ -275,61 +277,34 @@
   }
 
   function u64(value) { return BigInt.asUintN(64, value); }
-
   function mix64(value) {
     let v = u64(value);
     v = u64((v ^ (v >> 30n)) * 0xBF58476D1CE4E5B9n);
     v = u64((v ^ (v >> 27n)) * 0x94D049BB133111EBn);
     return u64(v ^ (v >> 31n));
   }
-
   function javaHash(text) {
     let hash = 0;
-    for (let i = 0; i < text.length; i += 1) {
-      hash = (Math.imul(31, hash) + text.charCodeAt(i)) | 0;
-    }
+    for (let i = 0; i < text.length; i += 1) hash = (Math.imul(31, hash) + text.charCodeAt(i)) | 0;
     return BigInt(hash);
   }
-
   function parseSeed(value) {
-    try {
-      return BigInt(String(value).trim() || "0");
-    } catch (_) {
-      return 0n;
-    }
+    try { return BigInt(String(value).trim() || "0"); } catch (_) { return 0n; }
   }
-
   function windSeed(config) {
-    return mix64(
-      parseSeed(config.worldSeed)
-      ^ parseSeed(config.seedSalt)
-      ^ u64(javaHash(config.dimensionId || "minecraft:overworld") * 0x9E3779B97F4A7C15n)
-    );
+    return mix64(parseSeed(config.worldSeed) ^ parseSeed(config.seedSalt)
+      ^ u64(javaHash(config.dimensionId || "minecraft:overworld") * 0x9E3779B97F4A7C15n));
   }
-
   function latticeNoise(seed, x, z, channel) {
-    const value = mix64(
-      seed
-      ^ mix64(BigInt(x) * 0x632BE59BD9B4E019n)
-      ^ mix64(BigInt(z) * 0x9E3779B97F4A7C15n)
-      ^ channel
-    );
+    const value = mix64(seed ^ mix64(BigInt(x) * 0x632BE59BD9B4E019n)
+      ^ mix64(BigInt(z) * 0x9E3779B97F4A7C15n) ^ channel);
     return Number(value >> 11n) / TWO_POW_53 * 2 - 1;
   }
-
-  function smoothStep(value) {
-    return value * value * (3 - 2 * value);
-  }
-
-  function lerp(a, b, t) {
-    return a + (b - a) * t;
-  }
-
+  function smoothStep(value) { return value * value * (3 - 2 * value); }
+  function lerp(a, b, t) { return a + (b - a) * t; }
   function smoothNoise(seed, x, z, channel) {
-    const x0 = Math.floor(x);
-    const z0 = Math.floor(z);
-    const tx = smoothStep(x - x0);
-    const tz = smoothStep(z - z0);
+    const x0 = Math.floor(x); const z0 = Math.floor(z);
+    const tx = smoothStep(x - x0); const tz = smoothStep(z - z0);
     const n00 = latticeNoise(seed, x0, z0, channel);
     const n10 = latticeNoise(seed, x0 + 1, z0, channel);
     const n01 = latticeNoise(seed, x0, z0 + 1, channel);
@@ -339,48 +314,28 @@
 
   function windAt(position, config) {
     if (!config.windEnabled) return [0, 0, 0];
-
-    let rain = 0;
-    let thunder = 0;
-
+    let rain = 0; let thunder = 0;
     if (config.weatherAffectsWind) {
       if (config.weather === "rain") rain = 1;
-      if (config.weather === "thunder") {
-        rain = 1;
-        thunder = 1;
-      }
+      if (config.weather === "thunder") { rain = 1; thunder = 1; }
     }
-
-    const base = config.windSpeed
-      + config.rainWindBonus * rain
-      + config.thunderWindBonus * thunder;
-
-    const gust = config.gustSpeed
-      + config.rainGustBonus * rain
-      + config.thunderGustBonus * thunder;
-
+    const base = config.windSpeed + config.rainWindBonus * rain + config.thunderWindBonus * thunder;
+    const gust = config.gustSpeed + config.rainGustBonus * rain + config.thunderGustBonus * thunder;
     if (base <= 0 && gust <= 0) return [0, 0, 0];
-
     const size = Math.max(16, config.windRegionSize);
     const seed = config._windSeed ?? (config._windSeed = windSeed(config));
-
     const speedNoise = smoothNoise(seed, position[0] / size, position[2] / size, 0x51EEDn);
     const directionNoise = smoothNoise(seed, position[0] / size, position[2] / size, 0xD1CE7n);
     const verticalNoise = smoothNoise(seed, position[0] / size, position[2] / size, 0xA17n);
-
     const regionalMultiplier = Math.max(0, 1 + speedNoise * config.windSpeedVariation);
     const altitude = Math.max(0, position[1] - config.seaLevelY);
     const altitudeGain = Math.max(0, config.altitudeWindMultiplier - 1);
     const altitudeFactor = 1 + Math.min(altitudeGain, Math.log1p(altitude / 10) * 0.08);
-
     const speed = Math.max(0, (base * regionalMultiplier + gust * speedNoise) * altitudeFactor) / 20;
     const direction = (config.windDirection + directionNoise * config.windDirectionVariation) * Math.PI / 180;
-
-    return [
-      Math.sin(direction) * speed,
+    return [Math.sin(direction) * speed,
       gust * config.verticalTurbulence * verticalNoise / 20,
-      Math.cos(direction) * speed
-    ];
+      Math.cos(direction) * speed];
   }
 
   function machMultiplier(mach) {
@@ -391,11 +346,7 @@
     if (mach < 3) return lerp(1.45, 1.1, (mach - 1.5) / 1.5);
     return 1.1;
   }
-
-  function length(v) {
-    return Math.hypot(v[0], v[1], v[2]);
-  }
-
+  function length(v) { return Math.hypot(v[0], v[1], v[2]); }
   function acceleration(position, velocity, tick, config) {
     const wind = windAt(position, config);
     const relative = [velocity[0] - wind[0], velocity[1] - wind[1], velocity[2] - wind[2]];
@@ -406,7 +357,7 @@
       * (288.15 / Math.max(150, temperature + 273.15))));
     const soundSpeed = Math.max(250, 331.3 + 0.606 * temperature);
     const cd = config.cd * machMultiplier(relativeSpeed * 20 / soundSpeed);
-    const diameter = config.diameter;
+    const diameter = Math.max(0.05, config.diameter);
     const area = Math.PI * diameter * diameter * 0.25;
     const relativeMass = Math.sqrt(Math.max(0.25, config.referenceMass) / 2);
     const massKg = Math.max(0.1, config.projectileDensity * area * diameter
@@ -422,14 +373,11 @@
       const latitude = config.latitude * Math.PI / 180;
       const oy = EARTH_ANGULAR_SPEED * Math.sin(latitude);
       const oz = -EARTH_ANGULAR_SPEED * Math.cos(latitude);
-      const vmx = velocity[0] * 20;
-      const vmy = velocity[1] * 20;
-      const vmz = velocity[2] * 20;
+      const vmx = velocity[0] * 20; const vmy = velocity[1] * 20; const vmz = velocity[2] * 20;
       ax += -2 / 400 * (oy * vmz - oz * vmy);
       ay += -2 / 400 * (oz * vmx);
       az += -2 / 400 * (-oy * vmx);
     }
-
     if (config.enableSpinDrift) {
       const horizontal = Math.hypot(velocity[0], velocity[2]);
       if (horizontal > 1e-12) {
@@ -438,220 +386,138 @@
         az += -velocity[0] / horizontal * amount;
       }
     }
-
     return [ax, ay, az];
   }
 
   function simulateToTarget(pitchDeg, yawDeg, start, target, speedBpt, config, collectPath) {
-    const yaw = yawDeg * Math.PI / 180;
-    const pitch = pitchDeg * Math.PI / 180;
+    const yaw = yawDeg * Math.PI / 180; const pitch = pitchDeg * Math.PI / 180;
     const horizontal = Math.cos(pitch) * speedBpt;
     let velocity = [Math.sin(yaw) * horizontal, Math.sin(pitch) * speedBpt, Math.cos(yaw) * horizontal];
     let position = [...start];
-    const dx = target[0] - start[0];
-    const dz = target[2] - start[2];
+    const dx = target[0] - start[0]; const dz = target[2] - start[2];
     const targetRange = Math.hypot(dx, dz);
-    const ux = dx / targetRange;
-    const uz = dz / targetRange;
-    const rightX = uz;
-    const rightZ = -ux;
+    const ux = dx / targetRange; const uz = dz / targetRange;
+    const rightX = uz; const rightZ = -ux;
     const path = collectPath ? [{ x: 0, y: 0 }] : null;
-    let previousAlong = 0;
+    let previousAlong = 0; let previousPosition = [...position];
     const maxTicks = Math.min(20000, Math.max(1, config.maxTicks || 2000));
-
     for (let tick = 0; tick < maxTicks; tick += 1) {
       const accel = acceleration(position, velocity, tick, config);
-      const next = [
-        position[0] + velocity[0] + accel[0] * 0.5,
+      const next = [position[0] + velocity[0] + accel[0] * 0.5,
         position[1] + velocity[1] + accel[1] * 0.5,
-        position[2] + velocity[2] + accel[2] * 0.5
-      ];
+        position[2] + velocity[2] + accel[2] * 0.5];
       const along = (next[0] - start[0]) * ux + (next[2] - start[2]) * uz;
-
-      if (collectPath) {
-        path.push({
-          x: Math.hypot(next[0] - start[0], next[2] - start[2]),
-          y: next[1] - start[1]
-        });
-      }
-
+      if (collectPath) path.push({ x: Math.hypot(next[0] - start[0], next[2] - start[2]), y: next[1] - start[1] });
       if (along >= targetRange && previousAlong < targetRange) {
         const fraction = (targetRange - previousAlong) / Math.max(1e-12, along - previousAlong);
-        const hit = [
-          lerp(position[0], next[0], fraction),
-          lerp(position[1], next[1], fraction),
-          lerp(position[2], next[2], fraction)
-        ];
-        return {
-          ok: true,
-          yError: hit[1] - target[1],
+        const hit = [lerp(previousPosition[0], next[0], fraction),
+          lerp(previousPosition[1], next[1], fraction), lerp(previousPosition[2], next[2], fraction)];
+        return { ok: true, yError: hit[1] - target[1],
           crossError: (hit[0] - target[0]) * rightX + (hit[2] - target[2]) * rightZ,
-          ticks: tick + fraction,
-          position: hit,
-          path
-        };
+          ticks: tick + fraction, position: hit, path };
       }
-
-      previousAlong = along;
-      position = next;
+      previousAlong = along; previousPosition = position; position = next;
       velocity = [velocity[0] + accel[0], velocity[1] + accel[1], velocity[2] + accel[2]];
-
-      if (tick > 10 && position[1] < Math.min(start[1], target[1]) - 512 && velocity[1] < 0) {
-        break;
-      }
+      if (tick > 10 && position[1] < Math.min(start[1], target[1]) - 512 && velocity[1] < 0) break;
     }
-
     return { ok: false, yError: Infinity, crossError: Infinity, ticks: -1, path };
   }
 
   function refineSolution(initialPitch, initialYaw, start, target, speedBpt, config) {
-    let pitch = initialPitch;
-    let yaw = initialYaw;
-
+    let pitch = initialPitch; let yaw = initialYaw;
     for (let iteration = 0; iteration < 12; iteration += 1) {
       const base = simulateToTarget(pitch, yaw, start, target, speedBpt, config, false);
       if (!base.ok) return null;
       if (Math.hypot(base.yError, base.crossError) < 0.01) break;
-
       const step = 0.05;
       const pitchSample = simulateToTarget(pitch + step, yaw, start, target, speedBpt, config, false);
       const yawSample = simulateToTarget(pitch, yaw + step, start, target, speedBpt, config, false);
       if (!pitchSample.ok || !yawSample.ok) break;
-
       const a = (pitchSample.yError - base.yError) / step;
       const b = (yawSample.yError - base.yError) / step;
       const c = (pitchSample.crossError - base.crossError) / step;
       const d = (yawSample.crossError - base.crossError) / step;
       const determinant = a * d - b * c;
       if (Math.abs(determinant) < 1e-9) break;
-
       const dp = (-base.yError * d + b * base.crossError) / determinant;
       const dy = (-a * base.crossError + base.yError * c) / determinant;
       pitch += Math.max(-2, Math.min(2, dp));
       yaw += Math.max(-2, Math.min(2, dy));
       pitch = Math.max(config.minPitch, Math.min(config.maxPitch, pitch));
     }
-
     const final = simulateToTarget(pitch, yaw, start, target, speedBpt, config, true);
-    return final.ok
-      ? { pitchDeg: pitch, yawDeg: yaw, miss: Math.hypot(final.yError, final.crossError), ...final }
-      : null;
+    return final.ok ? { pitchDeg: pitch, yawDeg: yaw, miss: Math.hypot(final.yError, final.crossError), ...final } : null;
   }
 
   function solve(start, target, speedBpt, config, preferredArc) {
-    const dx = target[0] - start[0];
-    const dz = target[2] - start[2];
+    const dx = target[0] - start[0]; const dz = target[2] - start[2];
     const range = Math.hypot(dx, dz);
     if (!(range > 0) || !(speedBpt > 0)) return { ok: false };
-
     const bearing = Math.atan2(dx, dz) * 180 / Math.PI;
     const samples = [];
-
     for (let pitch = config.minPitch; pitch <= config.maxPitch; pitch += 1) {
       const sim = simulateToTarget(pitch, bearing, start, target, speedBpt, config, false);
-      if (sim.ok && Number.isFinite(sim.yError)) {
-        samples.push({ pitch, error: sim.yError });
-      }
+      if (sim.ok && Number.isFinite(sim.yError)) samples.push({ pitch, error: sim.yError });
     }
-
     const roots = [];
     for (let i = 1; i < samples.length; i += 1) {
-      const a = samples[i - 1];
-      const b = samples[i];
+      const a = samples[i - 1]; const b = samples[i];
       if (a.error === 0 || a.error * b.error <= 0) {
         const fraction = Math.abs(a.error) / Math.max(1e-12, Math.abs(a.error) + Math.abs(b.error));
         roots.push(lerp(a.pitch, b.pitch, fraction));
       }
     }
-
     if (!roots.length && samples.length) {
       samples.sort((a, b) => Math.abs(a.error) - Math.abs(b.error));
       roots.push(samples[0].pitch);
     }
-
-    const refined = roots
-      .map((pitch) => refineSolution(pitch, bearing, start, target, speedBpt, config))
-      .filter(Boolean)
-      .sort((a, b) => a.pitchDeg - b.pitchDeg);
-
+    const refined = roots.map((pitch) => refineSolution(pitch, bearing, start, target, speedBpt, config))
+      .filter(Boolean).sort((a, b) => a.pitchDeg - b.pitchDeg);
     if (!refined.length) return { ok: false };
-
-    const low = refined[0];
-    const high = refined.length > 1 ? refined[refined.length - 1] : null;
+    const low = refined[0]; const high = refined.length > 1 ? refined[refined.length - 1] : null;
     const selected = preferredArc === "high" && high ? high : low;
-
-    return {
-      ok: selected.miss <= Math.max(1, config.allowedMiss || 1),
-      low,
-      high,
-      selected
-    };
+    return { ok: selected.miss <= Math.max(1, config.allowedMiss || 1), low, high, selected };
   }
 
   function simulateRange(pitchDeg, yawDeg, start, speedBpt, config) {
-    const pitch = pitchDeg * Math.PI / 180;
-    const yaw = yawDeg * Math.PI / 180;
+    const pitch = pitchDeg * Math.PI / 180; const yaw = yawDeg * Math.PI / 180;
     const horizontal = Math.cos(pitch) * speedBpt;
     let velocity = [Math.sin(yaw) * horizontal, Math.sin(pitch) * speedBpt, Math.cos(yaw) * horizontal];
-    let position = [...start];
+    let position = [...start]; let previous = [...start];
     const maxTicks = Math.min(20000, Math.max(1, config.maxTicks || 2000));
-
     for (let tick = 0; tick < maxTicks; tick += 1) {
       const accel = acceleration(position, velocity, tick, config);
-      const next = [
-        position[0] + velocity[0] + accel[0] * 0.5,
+      const next = [position[0] + velocity[0] + accel[0] * 0.5,
         position[1] + velocity[1] + accel[1] * 0.5,
-        position[2] + velocity[2] + accel[2] * 0.5
-      ];
-
+        position[2] + velocity[2] + accel[2] * 0.5];
       if (tick > 0 && next[1] <= start[1]) {
-        const fraction = (position[1] - start[1]) / Math.max(1e-12, position[1] - next[1]);
-        const x = lerp(position[0], next[0], fraction);
-        const z = lerp(position[2], next[2], fraction);
-        return {
-          range: Math.hypot(x - start[0], z - start[2]),
-          ticks: tick + fraction
-        };
+        const fraction = (previous[1] - start[1]) / Math.max(1e-12, previous[1] - next[1]);
+        const x = lerp(previous[0], next[0], fraction); const z = lerp(previous[2], next[2], fraction);
+        return { range: Math.hypot(x - start[0], z - start[2]), ticks: tick + fraction };
       }
-
-      position = next;
+      previous = position; position = next;
       velocity = [velocity[0] + accel[0], velocity[1] + accel[1], velocity[2] + accel[2]];
     }
-
     return { range: NaN, ticks: -1 };
   }
 
   function maximumRange(start, speedBpt, config, yawDeg) {
     let best = { range: -Infinity, pitchDeg: null, ticks: -1 };
-
     for (let pitch = Math.max(0, config.minPitch); pitch <= Math.min(89, config.maxPitch); pitch += 1) {
       const result = simulateRange(pitch, yawDeg, start, speedBpt, config);
-      if (result.range > best.range) {
-        best = { ...result, pitchDeg: pitch };
-      }
+      if (result.range > best.range) best = { ...result, pitchDeg: pitch };
     }
-
     if (best.pitchDeg === null) return null;
-
     for (let pitch = Math.max(config.minPitch, best.pitchDeg - 1);
          pitch <= Math.min(config.maxPitch, best.pitchDeg + 1); pitch += 0.1) {
       const result = simulateRange(pitch, yawDeg, start, speedBpt, config);
-      if (result.range > best.range) {
-        best = { ...result, pitchDeg: pitch };
-      }
+      if (result.range > best.range) best = { ...result, pitchDeg: pitch };
     }
-
     return best;
   }
 
   global.CBCRealisticBallistics = {
-    CANNONS,
-    PROJECTILES,
-    projectileDefaults,
-    isProjectileCompatible,
-    fixedMuzzleVelocity,
-    windAt,
-    solve,
-    maximumRange
+    CANNONS, PROJECTILES, projectileDefaults, isProjectileCompatible,
+    fixedMuzzleVelocity, windAt, solve, maximumRange
   };
 })(window);
