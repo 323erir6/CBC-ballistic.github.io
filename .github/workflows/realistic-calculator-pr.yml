@@ -1,0 +1,81 @@
+name: Realistic calculator patch
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref }}
+
+      - name: Apply patch from main
+        shell: bash
+        run: |
+          git show origin/main:.github/scripts/patch_realistic_calculator.py > /tmp/patch_realistic_calculator.py
+          python3 /tmp/patch_realistic_calculator.py
+
+      - name: Validate JavaScript and solver behaviour
+        shell: bash
+        run: |
+          node --check cbc_realistic_ballistics.js
+          node --check app.js
+          grep -q 'REALISTIC_CALCULATOR_FIX_20260820_V3' app.js
+          grep -q 'id="calculateBtn"' index.html
+          grep -q 'worldSeedEl.disabled = !use' app.js
+          node <<'NODE'
+          global.window = global;
+          require('./cbc_realistic_ballistics.js');
+          const B = global.CBCRealisticBallistics;
+          const p = B.projectileDefaults('createbigcannons:ap_shell');
+          const cfg = {
+            worldSeed:'0', seedSalt:'0', dimensionId:'minecraft:overworld',
+            windEnabled:false, weatherAffectsWind:false, weather:'clear',
+            windSpeed:0, rainWindBonus:0, thunderWindBonus:0, gustSpeed:0,
+            rainGustBonus:0, thunderGustBonus:0, windRegionSize:2048,
+            windSpeedVariation:0, altitudeWindMultiplier:1,
+            windDirection:0, windDirectionVariation:0, verticalTurbulence:0,
+            seaLevelY:64, biomeTemperature:.8, scaleHeight:8500,
+            cd:p.cd, diameter:p.diameter, referenceMass:p.referenceMass,
+            projectileDensity:7800, lengthCalibers:3, solidFraction:.5,
+            gravity:9.80665, enableCoriolis:false, latitude:45,
+            enableSpinDrift:false, spinDriftFactor:0,
+            minPitch:-10, maxPitch:89, maxTicks:5000, allowedMiss:1,
+            barrelLength:20
+          };
+
+          // This deliberately uses a high muzzle velocity: the upper root is
+          // extremely narrow and was skipped by the old fixed-angle scan.
+          const high = B.solve([0,64,0],[2000,64,0],20,cfg,'high');
+          if (!high.low || !high.high || !high.selected) throw new Error('Expected two trajectories');
+          if (high.high.pitchDeg <= high.low.pitchDeg + 1) throw new Error('Upper trajectory not distinct');
+          if (Math.abs(high.selected.pitchDeg-high.high.pitchDeg) > 1e-4) throw new Error('HIGH did not select upper trajectory');
+          console.log('High-arc test:', {low:high.low.pitchDeg,high:high.high.pitchDeg,selected:high.selected.pitchDeg});
+
+          const a = B.solve([0,64,0],[500,64,0],8,{...cfg,barrelLength:0},'low');
+          const b = B.solve([0,64,0],[500,64,0],8,{...cfg,barrelLength:50},'low');
+          if (!a.low || !b.low) throw new Error('Muzzle test has no low solution');
+          if (Math.abs(a.low.pitchDeg-b.low.pitchDeg) < 0.01) throw new Error('50 m barrel did not affect pitch');
+          console.log('Muzzle test:', {zero:a.low.pitchDeg,fifty:b.low.pitchDeg});
+          NODE
+
+      - name: Commit patch to PR branch
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo 'No changes to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cbc_realistic_ballistics.js app.js index.html
+          git commit -m 'Fix realistic calculator trajectories and performance'
+          git push origin HEAD:${{ github.head_ref }}
