@@ -17,7 +17,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Patch calculator UI behaviour
+      - name: Patch app and UI
         shell: bash
         run: |
           python3 - <<'PY'
@@ -30,42 +30,29 @@ jobs:
           index = index_path.read_text(encoding='utf-8')
 
           marker = 'REALISTIC_MANUAL_ONLY_20260820_V1'
-          if marker in app:
-              print('Patch already applied.')
-              raise SystemExit(0)
+          if marker not in app:
+              # Remove duplicated coordinate listener registration.
+              app = app.replace(
+                  '// add coordinate-related fields so changes re-render\nfields.push("useCoords", "cannonX", "cannonY", "cannonZ", "targetX", "targetY", "targetZ");\n\n',
+                  '',
+                  1
+              )
 
-          # Coordinate fields were registered twice, creating duplicate input/change listeners.
-          duplicate_coords = '''// add coordinate-related fields so changes re-render
-          fields.push("useCoords", "cannonX", "cannonY", "cannonZ", "targetX", "targetY", "targetZ");
-
-          '''
-          if duplicate_coords not in app:
-              raise SystemExit('Duplicate coordinate fields block not found')
-          app = app.replace(duplicate_coords, '', 1)
-
-          # Replace the two duplicate updateInputMode() functions with one implementation.
-          update_input_mode = r'''function updateInputMode() {
+              # Collapse the duplicated input-mode functions into one.
+              new_mode = '''function updateInputMode() {
             const use = $("useCoords") && $("useCoords").checked;
             const distEl = $("distance") ? $("distance").parentElement : null;
             const heightEl = $("heightDelta") ? $("heightDelta").parentElement : null;
             const coordsEl = $("coordsGroup");
 
-            // Seed-dependent controls are meaningful only when absolute world
-            // coordinates are supplied. Hide them completely in distance mode.
             document.querySelectorAll(".seed-coordinate-only").forEach((el) => {
               el.style.display = use && isRealisticMode() ? "" : "none";
             });
 
             const worldSeedEl = $("worldSeed");
-            if (worldSeedEl) {
-              worldSeedEl.disabled = !use;
-              worldSeedEl.title = use ? "" : "Available only in coordinate mode";
-            }
+            if (worldSeedEl) worldSeedEl.disabled = !use;
             const windSeedSaltEl = $("windSeedSalt");
-            if (windSeedSaltEl) {
-              windSeedSaltEl.disabled = !use;
-              windSeedSaltEl.title = use ? "" : "Available only in coordinate mode";
-            }
+            if (windSeedSaltEl) windSeedSaltEl.disabled = !use;
 
             if (use) {
               if (distEl) distEl.style.display = "none";
@@ -77,28 +64,28 @@ jobs:
               if (coordsEl) coordsEl.style.display = "none";
             }
           }'''
+              app, n = re.subn(
+                  r'function updateInputMode\(\) \{.*?\n\}\n\nfunction updateInputMode\(\) \{.*?\n\}',
+                  new_mode,
+                  app,
+                  count=1,
+                  flags=re.S
+              )
+              if n != 1:
+                  raise SystemExit('Could not replace duplicate updateInputMode()')
 
-          pattern = re.compile(r'function updateInputMode\(\) \{.*?\n\}\n\nfunction updateInputMode\(\) \{.*?\n\}', re.S)
-          app, n = pattern.subn(update_input_mode, app, count=1)
-          if n != 1:
-              raise SystemExit('Could not replace duplicate updateInputMode functions')
+              app = app.replace(
+                  '    worldSeed: $("worldSeed").value,',
+                  '    worldSeed: opts.useCoords ? $("worldSeed").value : "0",',
+                  1
+              )
+              app = app.replace(
+                  '    seedSalt: $("windSeedSalt").value,',
+                  '    seedSalt: opts.useCoords ? $("windSeedSalt").value : "0",',
+                  1
+              )
 
-          # Distance mode must not consume user seed values even if values remain in DOM.
-          old = '    worldSeed: $("worldSeed").value,'
-          new = '    worldSeed: opts.useCoords ? $("worldSeed").value : "0",'
-          if old not in app:
-              raise SystemExit('worldSeed config line not found')
-          app = app.replace(old, new, 1)
-
-          old = '    seedSalt: $("windSeedSalt").value,'
-          new = '    seedSalt: opts.useCoords ? $("windSeedSalt").value : "0",'
-          if old not in app:
-              raise SystemExit('windSeedSalt config line not found')
-          app = app.replace(old, new, 1)
-
-          # In CBC Realistic mode, input changes must perform ZERO ballistic work.
-          # They only invalidate the previous result and wait for Calculate.
-          old_helper = '''// REALISTIC_CALCULATOR_FIX_20260820_V3
+              old = '''// REALISTIC_CALCULATOR_FIX_20260820_V3
           function isRealisticMode() {
             return $("calculatorType")?.value === "cbc" && $("method")?.value === "realistic";
           }
@@ -112,7 +99,7 @@ jobs:
             }
             render();
           }'''
-          new_helper = '''// REALISTIC_CALCULATOR_FIX_20260820_V3
+              new = '''// REALISTIC_CALCULATOR_FIX_20260820_V3
           // REALISTIC_MANUAL_ONLY_20260820_V1
           function isRealisticMode() {
             return $("calculatorType")?.value === "cbc" && $("method")?.value === "realistic";
@@ -138,54 +125,38 @@ jobs:
             }
             render();
           }'''
-          if old_helper not in app:
-              raise SystemExit('Realistic helper block not found')
-          app = app.replace(old_helper, new_helper, 1)
+              if old not in app:
+                  raise SystemExit('Realistic input helper not found')
+              app = app.replace(old, new, 1)
 
-          # Hidden Mianbao controls must also respect manual Realistic mode if an
-          # event is fired programmatically or by browser state restoration.
-          app = app.replace('''if ($("rocketLauncher")) $("rocketLauncher").addEventListener("change", () => {
-            fillRocketModes();
-            render();
-          });''', '''if ($("rocketLauncher")) $("rocketLauncher").addEventListener("change", () => {
-            fillRocketModes();
-            renderAfterInputChange();
-          });''', 1)
-          app = app.replace('''if ($("rocketMode")) $("rocketMode").addEventListener("change", () => {
-            syncRocketModeDefaults();
-            render();
-          });''', '''if ($("rocketMode")) $("rocketMode").addEventListener("change", () => {
-            syncRocketModeDefaults();
-            renderAfterInputChange();
-          });''', 1)
+              app = app.replace(
+                  'fillRocketModes();\n  render();\n});\nif ($("rocketMode"))',
+                  'fillRocketModes();\n  renderAfterInputChange();\n});\nif ($("rocketMode"))',
+                  1
+              )
+              app = app.replace(
+                  'syncRocketModeDefaults();\n  render();\n});\ndocument.querySelectorAll("[data-lang]")',
+                  'syncRocketModeDefaults();\n  renderAfterInputChange();\n});\ndocument.querySelectorAll("[data-lang]")',
+                  1
+              )
 
-          # Mark both seed controls as coordinate-only in the UI.
-          old = '''            <label>
-              <span data-i18n="worldSeed">World seed</span>
-              <input id="worldSeed" type="text" inputmode="numeric" value="0">
-              <small data-i18n="worldSeedHint">Required for the exact static wind field</small>
-            </label>'''
-          new = '''            <label id="worldSeedField" class="seed-coordinate-only">
-              <span data-i18n="worldSeed">World seed</span>
-              <input id="worldSeed" type="text" inputmode="numeric" value="0">
-              <small data-i18n="worldSeedHint">Required for the exact static wind field</small>
-            </label>'''
-          if old not in index:
-              raise SystemExit('World seed field not found')
-          index = index.replace(old, new, 1)
-
-          old = '<label class="method-realistic"><span>Wind seed salt</span><input id="windSeedSalt" type="text" inputmode="numeric" value="0"></label>'
-          new = '<label class="method-realistic seed-coordinate-only"><span>Wind seed salt</span><input id="windSeedSalt" type="text" inputmode="numeric" value="0"></label>'
-          if old not in index:
-              raise SystemExit('Wind seed salt field not found')
-          index = index.replace(old, new, 1)
-
+          # Hide seed controls outside coordinate mode.
+          if 'id="worldSeedField"' not in index:
+              index = index.replace(
+                  '<label>\n              <span data-i18n="worldSeed">World seed</span>',
+                  '<label id="worldSeedField" class="seed-coordinate-only">\n              <span data-i18n="worldSeed">World seed</span>',
+                  1
+              )
+          index = index.replace(
+              '<label class="method-realistic"><span>Wind seed salt</span><input id="windSeedSalt"',
+              '<label class="method-realistic seed-coordinate-only"><span>Wind seed salt</span><input id="windSeedSalt"',
+              1
+          )
           index = re.sub(r'cbc_realistic_ballistics\.js\?v=[^"\']+', 'cbc_realistic_ballistics.js?v=20260820-6', index, count=1)
           index = re.sub(r'app\.js\?v=[^"\']+', 'app.js?v=20260820-6', index, count=1)
 
           app_path.write_text(app, encoding='utf-8')
           index_path.write_text(index, encoding='utf-8')
-          print('Manual Realistic calculation patch applied.')
           PY
 
       - name: Validate
@@ -193,20 +164,20 @@ jobs:
         run: |
           node --check app.js
           grep -q 'REALISTIC_MANUAL_ONLY_20260820_V1' app.js
-          grep -q 'worldSeed: opts.useCoords ?' app.js
-          grep -q 'seedSalt: opts.useCoords ?' app.js
-          grep -q 'class="seed-coordinate-only"' index.html
+          grep -Fq 'worldSeed: opts.useCoords ? $("worldSeed").value : "0"' app.js
+          grep -Fq 'seedSalt: opts.useCoords ? $("windSeedSalt").value : "0"' app.js
+          grep -q 'id="worldSeedField" class="seed-coordinate-only"' index.html
           grep -q 'method-realistic seed-coordinate-only' index.html
-          if grep -q 'drawTrajectory(null, collectOptions())' app.js; then
-            echo 'Realistic input changes still draw/recalculate.'
-            exit 1
-          fi
-          COUNT=$(grep -c '^function updateInputMode()' app.js)
-          test "$COUNT" -eq 1
+          test "$(grep -c '^function updateInputMode()' app.js)" -eq 1
+          if grep -q 'drawTrajectory(null, collectOptions())' app.js; then exit 1; fi
 
-      - name: Commit patch
+      - name: Commit
         shell: bash
         run: |
+          if git diff --quiet; then
+            echo 'No patch needed.'
+            exit 0
+          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add app.js index.html
