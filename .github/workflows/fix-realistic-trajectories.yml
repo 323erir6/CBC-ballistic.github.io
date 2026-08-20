@@ -207,3 +207,5 @@ jobs:
           git add cbc_realistic_ballistics.js app.js index.html
           git commit -m 'Fix realistic high arc search and muzzle position'
           git push origin HEAD:${{ github.head_ref }}
+
+# PR trigger marker
