@@ -959,13 +959,9 @@ function collectOptions() {
 
 function collectRealisticConfig(opts) {
   return {
-    // Convert the configured nominal CBC velocity to the effective launch
-    // velocity measured from an in-game 50 m / 1000 m/s reference shot. This
-    // belongs to the launch model and is not a one-off target correction.
-    // Calibrated from the two equal-and-opposite high-arc range errors:
-    // the former model landed short, while 0.98945 overshot by the same
-    // distance. Keep the physical muzzle position and use their midpoint.
-    launchVelocityScale: 0.99411,
+    // The Java mod uses CBC's velocity without an empirical scale factor.
+    // CBC spawns a big-cannon projectile two blocks behind the first point
+    // outside the muzzle; launch() mirrors that exact placement.
     barrelLength: Math.max(0, opts.length),
     worldSeed: opts.useCoords ? $("worldSeed").value : "0",
     dimensionId: $("dimensionId").value || "minecraft:overworld",

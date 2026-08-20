@@ -45,7 +45,6 @@ function config(overrides = {}) {
     maxPitch: 89.9,
     maxTicks: 10000,
     allowedMiss: 0.05,
-    launchVelocityScale: 1,
     barrelLength: 0,
     ...overrides
   };
@@ -127,8 +126,8 @@ assert.ok(windy.low && windy.low.miss <= 1);
 assert.ok(windy.high && windy.high.miss <= 1);
 assert.equal(windy.selected, windy.high);
 
-// Regression for the reported CBC 50 m gun shot. The solver must account for
-// both the muzzle position and CBC's calibrated nominal-to-effective velocity.
+// Regression for the reported CBC 50 m gun shot. The solver must use the
+// unscaled CBC launch velocity and CBC's actual two-block spawn inset.
 const reportedShot = ballistics.solve(
   [-117.76, 171.62, -23.08],
   [11512, 168, -44499],
@@ -151,7 +150,6 @@ const reportedShot = ballistics.solve(
     altitudeWindMultiplier: 1.55,
     enableCoriolis: true,
     enableSpinDrift: true,
-    launchVelocityScale: 0.99411,
     barrelLength: 50,
     maxTicks: 10000,
     allowedMiss: 1
@@ -161,7 +159,42 @@ const reportedShot = ballistics.solve(
 assert.ok(reportedShot.low, "reported shot is missing its low arc");
 assert.ok(reportedShot.high, "reported shot is missing its high arc");
 assert.ok(reportedShot.high.miss <= 1, "reported high arc does not converge");
-assert.ok(reportedShot.high.pitchDeg > 69.64 && reportedShot.high.pitchDeg < 69.68);
+assert.ok(reportedShot.high.pitchDeg > 69.97 && reportedShot.high.pitchDeg < 70.01);
+
+// Latest measured shot. Its landing position is deliberately not used as a
+// range correction: this guards the code-only Java port for the exact inputs.
+const latestShot = ballistics.solve(
+  [-139.98, 171.53, -21.38],
+  [11512, 168, -44499],
+  50,
+  config({
+    worldSeed: "4859982396822044733",
+    cd: 0.25,
+    windEnabled: true,
+    windSpeed: 4,
+    windDirection: 35,
+    gustSpeed: 3,
+    weatherAffectsWind: true,
+    windDirectionVariation: 45,
+    windSpeedVariation: 0.35,
+    rainWindBonus: 5,
+    thunderWindBonus: 7,
+    rainGustBonus: 2,
+    thunderGustBonus: 5,
+    verticalTurbulence: 0.04,
+    altitudeWindMultiplier: 1.55,
+    enableCoriolis: true,
+    enableSpinDrift: true,
+    barrelLength: 50,
+    maxTicks: 10000,
+    allowedMiss: 1
+  }),
+  "high"
+);
+assert.ok(latestShot.high, "latest measured shot is missing its high arc");
+assert.ok(latestShot.high.miss <= 1, "latest measured high arc does not converge");
+assert.ok(latestShot.high.pitchDeg > 69.97 && latestShot.high.pitchDeg < 70.00);
+assert.ok(latestShot.high.yawDeg > 162.44 && latestShot.high.yawDeg < 162.47);
 
 console.log("CBC Realistic Ballistics: Low/High arc tests passed", {
   reportedLow: reportedShot.low && {
