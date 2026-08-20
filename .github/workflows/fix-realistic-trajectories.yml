@@ -8,3 +8,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: echo "Temporary branch used for tested calculator patch"
+      - run: echo "Trigger updated"
