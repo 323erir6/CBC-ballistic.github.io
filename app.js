@@ -19,6 +19,7 @@ const I18N = {
     title: "Ballistic calculator",
     shotSetup: "Shot setup",
     reset: "Reset",
+    calculate: "Calculate",
     barrelLength: "Total cannon length",
     blocks: "blocks / meters",
     velocityMps: "Projectile speed",
@@ -84,6 +85,7 @@ const I18N = {
     title: "Баллистический калькулятор",
     shotSetup: "Параметры выстрела",
     reset: "Сброс",
+    calculate: "Рассчитать",
     barrelLength: "Общая длина пушки",
     blocks: "блоки / метры",
     velocityMps: "Скорость снаряда",
@@ -149,6 +151,7 @@ const I18N = {
     title: "Балістичний калькулятор",
     shotSetup: "Параметри пострілу",
     reset: "Скинути",
+    calculate: "Розрахувати",
     barrelLength: "Загальна довжина гармати",
     blocks: "блоки / метри",
     velocityMps: "Швидкість снаряда",
@@ -755,6 +758,11 @@ function updateInputMode() {
   const distEl = $("distance") ? $("distance").parentElement : null;
   const heightEl = $("heightDelta") ? $("heightDelta").parentElement : null;
   const coordsEl = $("coordsGroup");
+  const worldSeedEl = $("worldSeed");
+  if (worldSeedEl) {
+    worldSeedEl.disabled = !use;
+    worldSeedEl.title = use ? "" : "Enable coordinate input to use the world seed";
+  }
   if (use) {
     if (distEl) distEl.style.display = "none";
     if (heightEl) heightEl.style.display = "none";
@@ -771,6 +779,11 @@ function updateInputMode() {
   const distEl = $("distance") ? $("distance").parentElement : null;
   const heightEl = $("heightDelta") ? $("heightDelta").parentElement : null;
   const coordsEl = $("coordsGroup");
+  const worldSeedEl = $("worldSeed");
+  if (worldSeedEl) {
+    worldSeedEl.disabled = !use;
+    worldSeedEl.title = use ? "" : "Enable coordinate input to use the world seed";
+  }
   if (use) {
     if (distEl) distEl.style.display = "none";
     if (heightEl) heightEl.style.display = "none";
@@ -917,7 +930,8 @@ function collectOptions() {
   // use the full elevation range configured by the user.
   const aminVal = num("amin");
   const amaxRaw = num("amax");
-  const amaxLimit = calculatorType === "mianbao" ? 89 : 60;
+  const realisticMode = calculatorType === "cbc" && $("method")?.value === "realistic";
+  const amaxLimit = calculatorType === "mianbao" || realisticMode ? 89 : 60;
   const amaxVal = Number.isFinite(amaxRaw) ? Math.min(amaxRaw, amaxLimit) : amaxLimit;
 
   return {
@@ -962,6 +976,7 @@ function collectRealisticConfig(opts) {
     projectileDensity: num("projectileDensity"),
     lengthCalibers: num("lengthCalibers"),
     solidFraction: num("solidFraction"),
+    barrelLength: Math.max(0, opts.length),
     windEnabled: $("realisticWindEnabled").checked,
     windSpeed: num("windSpeed"),
     windDirection: num("windDirection"),
@@ -1084,6 +1099,21 @@ function renderMianbao(opts) {
   }, null, 2);
 }
 
+// REALISTIC_CALCULATOR_FIX_20260820_V3
+function isRealisticMode() {
+  return $("calculatorType")?.value === "cbc" && $("method")?.value === "realistic";
+}
+
+function renderAfterInputChange() {
+  if (isRealisticMode()) {
+    clearOutputs();
+    setStatus(t("calculate"), "");
+    drawTrajectory(null, collectOptions());
+    return;
+  }
+  render();
+}
+
 function render() {
   const opts = collectOptions();
   if (opts.calculatorType === "mianbao") {
@@ -1169,11 +1199,11 @@ function render() {
       selected: result.selected ? { ...result.selected, path: undefined } : null
     };
     debugObj = {
-      source: "CBC Realistic Ballistics 1.3.2 browser port",
+      source: "CBC Realistic Ballistics 1.3.3 browser port",
       method: "realistic",
       projectile: opts.projectile,
       cannonProfile: $("cannonProfile")?.value,
-      note: "Matches the mod's static seed-derived wind and aerodynamic trajectory model.",
+      note: "Matches the mod trajectory model. Flight begins at the muzzle computed from cannon coordinates, solved yaw/pitch and total cannon length.",
       cannon,
       target,
       velocityMps: opts.speedMps,
@@ -1626,7 +1656,7 @@ function applyLanguage(nextLang) {
   updateCalculatorType();
   updateInputMode();
   syncCannonVelocity();
-  render();
+  renderAfterInputChange();
 }
 
 function fillProjectiles(preferredProjectile) {
@@ -1737,41 +1767,48 @@ fields.forEach((id) => {
   if (!el || id === "method" || id === "projectile") return;
   const update = () => {
     if (id === "length") syncCannonVelocity();
-    render();
+    renderAfterInputChange();
   };
   el.addEventListener("input", update);
   el.addEventListener("change", update);
 });
 
 // coordinate mode toggle should update UI
-if ($("useCoords")) $("useCoords").addEventListener("change", () => { updateInputMode(); render(); });
+if ($("useCoords")) $("useCoords").addEventListener("change", () => { updateInputMode(); renderAfterInputChange(); });
 updateInputMode();
 
 // Ensure method/projectile changes toggle UI specifically
 if ($("method")) $("method").addEventListener("change", () => {
-  if ($("method").value === "realistic") syncRealisticProjectileDefaults();
+  if ($("method").value === "realistic") {
+    syncRealisticProjectileDefaults();
+    if (num("amax") === 60) $("amax").value = 89;
+  } else if (num("amax") === 89) {
+    $("amax").value = 60;
+  }
   syncCannonVelocity();
   updateUIForMethod();
-  render();
+  updateInputMode();
+  renderAfterInputChange();
 });
 if ($("projectile")) $("projectile").addEventListener("change", () => {
   if ($("method").value === "realistic") syncRealisticProjectileDefaults();
   syncCannonVelocity();
   updateUIForMethod();
-  render();
+  renderAfterInputChange();
 });
 if ($("cannonProfile")) $("cannonProfile").addEventListener("change", () => {
   fillProjectiles($("projectile").value);
   syncRealisticProjectileDefaults();
   syncCannonVelocity();
-  render();
+  renderAfterInputChange();
 });
 if ($("calculatorType")) $("calculatorType").addEventListener("change", () => {
   if ($("calculatorType").value === "mianbao" && num("amax") === 60) $("amax").value = 89;
-  if ($("calculatorType").value === "cbc" && num("amax") === 89) $("amax").value = 60;
+  if ($("calculatorType").value === "cbc" && $("method")?.value !== "realistic" && num("amax") === 89) $("amax").value = 60;
   updateCalculatorType();
+  updateInputMode();
   syncCannonVelocity();
-  render();
+  renderAfterInputChange();
 });
 if ($("rocketLauncher")) $("rocketLauncher").addEventListener("change", () => {
   fillRocketModes();
@@ -1785,4 +1822,5 @@ document.querySelectorAll("[data-lang]").forEach((btn) => {
   btn.addEventListener("click", () => applyLanguage(btn.dataset.lang));
 });
 $("resetBtn").addEventListener("click", resetDefaults);
+if ($("calculateBtn")) $("calculateBtn").addEventListener("click", render);
 applyLanguage(lang);
