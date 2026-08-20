@@ -1098,8 +1098,6 @@ function renderMianbao(opts) {
 }
 
 // REQUESTED_ROLLBACK_PATCH_20260820_V1
-// REALISTIC_GAME_PITCH_CALIBRATION_20260820_V1
-const REALISTIC_GAME_PITCH_CORRECTION_DEG = 1.0;
 function isRealisticMode() {
   return $("calculatorType")?.value === "cbc" && $("method")?.value === "realistic";
 }
@@ -1187,23 +1185,12 @@ function render() {
     result = physics.solve(cannon, calculationTarget, opts.speedBpt, config, opts.preferArc);
     chosen = result.selected;
 
-    // Empirical game calibration. The browser physics model was consistently
-    // about one degree too low in the verified long-range shot, which caused
-    // a multi-kilometre undershoot. Keep the physics solution intact and
-    // correct only the gun elevation sent/shown to the player.
-    const calibratedPitch = (solution) => solution
-      ? Math.min(opts.amax, Math.max(opts.amin,
-          solution.pitchDeg + REALISTIC_GAME_PITCH_CORRECTION_DEG))
-      : null;
-    const chosenPitchDeg = calibratedPitch(chosen);
-    const lowPitchDeg = calibratedPitch(result.low);
-    const highPitchDeg = calibratedPitch(result.high);
 
     ok = Boolean(result.ok && chosen);
     setStatus(ok ? t("solved") : t("noSolution"), ok ? "ok" : "bad");
-    $("chosenPitch").textContent = chosenPitchDeg !== null ? `${fmt(chosenPitchDeg, 4)}°` : "-";
-    $("lowPitch").textContent = lowPitchDeg !== null ? `${fmt(lowPitchDeg, 4)}°` : "-";
-    $("highPitch").textContent = highPitchDeg !== null ? `${fmt(highPitchDeg, 4)}°` : "-";
+    $("chosenPitch").textContent = chosen ? `${fmt(chosen.pitchDeg, 4)}°` : "-";
+    $("lowPitch").textContent = result.low ? `${fmt(result.low.pitchDeg, 4)}°` : "-";
+    $("highPitch").textContent = result.high ? `${fmt(result.high.pitchDeg, 4)}°` : "-";
     $("flightTime").textContent = chosen
       ? `${fmt(chosen.ticks, 2)} ticks / ${fmt(chosen.ticks / TICKS_PER_SECOND, 2)} s` : "-";
     $("speedBpt").textContent = `${fmt(opts.speedBpt, 4)} m/tick`;
@@ -1241,9 +1228,6 @@ function render() {
       actualHorizontalRange,
       syntheticRangeOffset,
       effectiveHorizontalRange,
-      rawSelectedPitchDeg: chosen ? chosen.pitchDeg : null,
-      gamePitchCorrectionDeg: REALISTIC_GAME_PITCH_CORRECTION_DEG,
-      calibratedSelectedPitchDeg: chosenPitchDeg,
       velocityMps: opts.speedMps,
       velocityBpt: opts.speedBpt,
       windAtMuzzleBpt: physics.windAt(cannon, config),
