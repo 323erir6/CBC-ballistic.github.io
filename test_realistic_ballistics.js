@@ -128,7 +128,7 @@ assert.ok(windy.high && windy.high.miss <= 1);
 assert.equal(windy.selected, windy.high);
 
 // Regression for the reported CBC 50 m gun shot. The solver must account for
-// both the muzzle position and CBC's measured nominal-to-effective velocity.
+// both the muzzle position and CBC's calibrated nominal-to-effective velocity.
 const reportedShot = ballistics.solve(
   [-117.76, 171.62, -23.08],
   [11512, 168, -44499],
@@ -151,7 +151,7 @@ const reportedShot = ballistics.solve(
     altitudeWindMultiplier: 1.55,
     enableCoriolis: true,
     enableSpinDrift: true,
-    launchVelocityScale: 0.98945,
+    launchVelocityScale: 0.99411,
     barrelLength: 50,
     maxTicks: 10000,
     allowedMiss: 1
@@ -161,7 +161,7 @@ const reportedShot = ballistics.solve(
 assert.ok(reportedShot.low, "reported shot is missing its low arc");
 assert.ok(reportedShot.high, "reported shot is missing its high arc");
 assert.ok(reportedShot.high.miss <= 1, "reported high arc does not converge");
-assert.ok(reportedShot.high.pitchDeg > 68 && reportedShot.high.pitchDeg < 71);
+assert.ok(reportedShot.high.pitchDeg > 69.64 && reportedShot.high.pitchDeg < 69.68);
 
 console.log("CBC Realistic Ballistics: Low/High arc tests passed", {
   reportedLow: reportedShot.low && {
