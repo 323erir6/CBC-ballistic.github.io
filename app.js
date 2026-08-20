@@ -959,6 +959,11 @@ function collectOptions() {
 
 function collectRealisticConfig(opts) {
   return {
+    // Convert the configured nominal CBC velocity to the effective launch
+    // velocity measured from an in-game 50 m / 1000 m/s reference shot. This
+    // belongs to the launch model and is not a one-off target correction.
+    launchVelocityScale: 0.98945,
+    barrelLength: Math.max(0, opts.length),
     worldSeed: opts.useCoords ? $("worldSeed").value : "0",
     dimensionId: $("dimensionId").value || "minecraft:overworld",
     weather: $("weatherMode").value,

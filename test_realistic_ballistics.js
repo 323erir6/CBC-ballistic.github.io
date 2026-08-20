@@ -45,6 +45,8 @@ function config(overrides = {}) {
     maxPitch: 89.9,
     maxTicks: 10000,
     allowedMiss: 0.05,
+    launchVelocityScale: 1,
+    barrelLength: 0,
     ...overrides
   };
 }
@@ -125,4 +127,51 @@ assert.ok(windy.low && windy.low.miss <= 1);
 assert.ok(windy.high && windy.high.miss <= 1);
 assert.equal(windy.selected, windy.high);
 
-console.log("CBC Realistic Ballistics: Low/High arc tests passed");
+// Regression for the reported CBC 50 m gun shot. The solver must account for
+// both the muzzle position and CBC's measured nominal-to-effective velocity.
+const reportedShot = ballistics.solve(
+  [-117.76, 171.62, -23.08],
+  [11512, 168, -44499],
+  50,
+  config({
+    worldSeed: "4859982396822044733",
+    cd: 0.25,
+    windEnabled: true,
+    windSpeed: 4,
+    windDirection: 35,
+    gustSpeed: 3,
+    weatherAffectsWind: true,
+    windDirectionVariation: 45,
+    windSpeedVariation: 0.35,
+    rainWindBonus: 5,
+    thunderWindBonus: 7,
+    rainGustBonus: 2,
+    thunderGustBonus: 5,
+    verticalTurbulence: 0.04,
+    altitudeWindMultiplier: 1.55,
+    enableCoriolis: true,
+    enableSpinDrift: true,
+    launchVelocityScale: 0.98945,
+    barrelLength: 50,
+    maxTicks: 10000,
+    allowedMiss: 1
+  }),
+  "high"
+);
+assert.ok(reportedShot.low, "reported shot is missing its low arc");
+assert.ok(reportedShot.high, "reported shot is missing its high arc");
+assert.ok(reportedShot.high.miss <= 1, "reported high arc does not converge");
+assert.ok(reportedShot.high.pitchDeg > 68 && reportedShot.high.pitchDeg < 71);
+
+console.log("CBC Realistic Ballistics: Low/High arc tests passed", {
+  reportedLow: reportedShot.low && {
+    pitch: reportedShot.low.pitchDeg,
+    yaw: reportedShot.low.yawDeg,
+    ticks: reportedShot.low.ticks
+  },
+  reportedHigh: {
+    pitch: reportedShot.high.pitchDeg,
+    yaw: reportedShot.high.yawDeg,
+    ticks: reportedShot.high.ticks
+  }
+});
