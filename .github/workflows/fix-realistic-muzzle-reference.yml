@@ -1,5 +1,6 @@
 name: Fix realistic muzzle reference
 
+# one-shot patch trigger
 on:
   push:
     branches: [main]
@@ -34,9 +35,6 @@ jobs:
               print('Patch already applied.')
               raise SystemExit(0)
 
-          # Add translated labels. Total cannon length remains a weapon/velocity
-          # parameter; muzzleOffset is the actual reference-point -> projectile
-          # spawn distance used to initialise the Realistic flight simulation.
           replacements = [
               ('    barrelLength: "Total cannon length",',
                '    barrelLength: "Total cannon length",\n'
@@ -56,16 +54,12 @@ jobs:
                   raise SystemExit(f'I18N anchor missing: {old}')
               app = app.replace(old, new, 1)
 
-          # Register the field exactly once so Realistic mode only marks the
-          # old result stale until Calculate is pressed.
           old = '  "length",\n  "speedMps",'
           new = '  "length",\n  "muzzleOffset",\n  "speedMps",'
           if old not in app:
               raise SystemExit('fields anchor missing')
           app = app.replace(old, new, 1)
 
-          # Keep total length for muzzle-velocity formulas, but use the new
-          # independent value for projectile starting position.
           old = '    length: num("length"),\n    speedMps: num("speedMps"),'
           new = '    length: num("length"),\n    muzzleOffset: Math.max(0, num("muzzleOffset")),\n    speedMps: num("speedMps"),'
           if old not in app:
@@ -94,11 +88,9 @@ jobs:
               raise SystemExit('debug note anchor missing')
           app = app.replace(old, new, 1)
 
-          # Marker for validation/versioning.
           app = app.replace('// REALISTIC_MANUAL_ONLY_20260820_V1',
                             '// REALISTIC_MANUAL_ONLY_20260820_V1\n// REALISTIC_MUZZLE_REFERENCE_FIX_20260820_V1', 1)
 
-          # Put the field next to the other Realistic cannon inputs.
           anchor = '''          <div class="grid two method-realistic">
             <label>
               <span data-i18n="cannonType">Cannon</span>
@@ -122,7 +114,6 @@ jobs:
               raise SystemExit('realistic cannon input block missing')
           index = index.replace(anchor, replacement, 1)
 
-          # Bust browser cache.
           index = re.sub(r'cbc_realistic_ballistics\.js\?v=[^"\']+', 'cbc_realistic_ballistics.js?v=20260820-7', index, count=1)
           index = re.sub(r'app\.js\?v=[^"\']+', 'app.js?v=20260820-7', index, count=1)
 
