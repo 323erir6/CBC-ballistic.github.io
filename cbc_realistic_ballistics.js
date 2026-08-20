@@ -50,10 +50,161 @@ function sn(s,x,z,ch){let x0=Math.floor(x),z0=Math.floor(z),tx=sm(x-x0),tz=sm(z-
 function windAt(p,c){if(!c.windEnabled)return[0,0,0];let r=0,t=0;if(c.weatherAffectsWind){if(c.weather==="rain")r=1;if(c.weather==="thunder")r=t=1}let b=c.windSpeed+c.rainWindBonus*r+c.thunderWindBonus*t,gu=c.gustSpeed+c.rainGustBonus*r+c.thunderGustBonus*t;if(b<=0&&gu<=0)return[0,0,0];let z=Math.max(16,c.windRegionSize),sd=c._windSeed??(c._windSeed=ws(c)),a=sn(sd,p[0]/z,p[2]/z,0x51EEDn),d=sn(sd,p[0]/z,p[2]/z,0xD1CE7n),vn=sn(sd,p[0]/z,p[2]/z,0xA17n),rm=Math.max(0,1+a*c.windSpeedVariation),alt=Math.max(0,p[1]-c.seaLevelY),af=1+Math.min(Math.max(0,c.altitudeWindMultiplier-1),Math.log1p(alt/10)*.08),sp=Math.max(0,(b*rm+gu*a)*af)/20,di=(c.windDirection+d*c.windDirectionVariation)*Math.PI/180;return[Math.sin(di)*sp,gu*c.verticalTurbulence*vn/20,Math.cos(di)*sp]}
 function mm(m){if(m<.75)return 1;if(m<.95)return lr(1,1.65,(m-.75)/.2);if(m<1.1)return lr(1.65,2.05,(m-.95)/.15);if(m<1.5)return lr(2.05,1.45,(m-1.1)/.4);if(m<3)return lr(1.45,1.1,(m-1.5)/1.5);return 1.1}
 function ac(p,v,t,c){let w=windAt(p,c),r=[v[0]-w[0],v[1]-w[1],v[2]-w[2]],s=Math.hypot(...r),al=p[1]-c.seaLevelY,te=15+(c.biomeTemperature-.8)*20-Math.max(0,al)*.0065,rho=Math.max(.02,Math.min(3,1.225*Math.exp(-al/c.scaleHeight)*(288.15/Math.max(150,te+273.15)))),snd=Math.max(250,331.3+.606*te),C=c.cd*mm(s*20/snd),d=c.diameter,A=Math.PI*d*d*.25,rm=Math.sqrt(Math.max(.25,c.referenceMass)/2),M=Math.max(.1,c.projectileDensity*A*d*c.lengthCalibers*c.solidFraction*rm),D=s>1e-12?.5*rho*C*A/M*s*s:0;D=Math.min(D,s*.25);let ax=s>1e-12?-r[0]/s*D:0,ay=-c.gravity/400+(s>1e-12?-r[1]/s*D:0),az=s>1e-12?-r[2]/s*D:0;if(c.enableCoriolis){let q=c.latitude*Math.PI/180,oy=O*Math.sin(q),oz=-O*Math.cos(q),x=v[0]*20,y=v[1]*20,z=v[2]*20;ax+=-2/400*(oy*z-oz*y);ay+=-2/400*oz*x;az+=-2/400*(-oy*x)}if(c.enableSpinDrift){let h=Math.hypot(v[0],v[2]);if(h>1e-12){let q=c.gravity/400*c.spinDriftFactor*Math.min(1,(t+1)/100);ax+=v[2]/h*q;az-=v[0]/h*q}}return[ax,ay,az]}
-function sim(P,Y,S,T,V,c,pathOn){let y=Y*Math.PI/180,p=P*Math.PI/180,h=Math.cos(p)*V,v=[Math.sin(y)*h,Math.sin(p)*V,Math.cos(y)*h],x=[...S],dx=T[0]-S[0],dz=T[2]-S[2],R=Math.hypot(dx,dz),ux=dx/R,uz=dz/R,rx=uz,rz=-ux,path=pathOn?[{x:0,y:0}]:null,pa=0,px=[...x],mx=Math.min(20000,Math.max(1,c.maxTicks||2000));for(let t=0;t<mx;t++){let a=ac(x,v,t,c),n=[x[0]+v[0]+a[0]*.5,x[1]+v[1]+a[1]*.5,x[2]+v[2]+a[2]*.5],q=(n[0]-S[0])*ux+(n[2]-S[2])*uz;if(pathOn)path.push({x:Math.hypot(n[0]-S[0],n[2]-S[2]),y:n[1]-S[1]});if(q>=R&&pa<R){let f=(R-pa)/Math.max(1e-12,q-pa),hit=[lr(px[0],n[0],f),lr(px[1],n[1],f),lr(px[2],n[2],f)];return{ok:true,yError:hit[1]-T[1],crossError:(hit[0]-T[0])*rx+(hit[2]-T[2])*rz,ticks:t+f,position:hit,path}}pa=q;px=x;x=n;v=[v[0]+a[0],v[1]+a[1],v[2]+a[2]];if(t>10&&x[1]<Math.min(S[1],T[1])-512&&v[1]<0)break}return{ok:false,yError:Infinity,crossError:Infinity,ticks:-1,path}}
+function sim(P,Y,S,T,V,c,pathOn){
+  let y=Y*Math.PI/180,p=P*Math.PI/180,cp=Math.cos(p);
+  let dir=[Math.sin(y)*cp,Math.sin(p),Math.cos(y)*cp];
+  let v=[dir[0]*V,dir[1]*V,dir[2]*V];
+  let L=Math.max(0,Number(c.barrelLength)||0);
+  let x=[S[0]+dir[0]*L,S[1]+dir[1]*L,S[2]+dir[2]*L];
+  let dx=T[0]-S[0],dz=T[2]-S[2],R=Math.hypot(dx,dz);
+  if(!(R>0))return{ok:false,yError:Infinity,crossError:Infinity,ticks:-1,path:null};
+  let ux=dx/R,uz=dz/R,rx=uz,rz=-ux;
+  let path=pathOn?[{x:0,y:0}]:null;
+  if(pathOn&&L>0)path.push({x:Math.hypot(x[0]-S[0],x[2]-S[2]),y:x[1]-S[1]});
+  let pa=(x[0]-S[0])*ux+(x[2]-S[2])*uz,px=[...x];
+  if(pa>=R)return{ok:false,yError:Infinity,crossError:Infinity,ticks:-1,path};
+  let mx=Math.min(20000,Math.max(1,c.maxTicks||2000));
+  for(let t=0;t<mx;t++){
+    let a=ac(x,v,t,c),n=[x[0]+v[0]+a[0]*.5,x[1]+v[1]+a[1]*.5,x[2]+v[2]+a[2]*.5];
+    let q=(n[0]-S[0])*ux+(n[2]-S[2])*uz;
+    if(pathOn)path.push({x:Math.hypot(n[0]-S[0],n[2]-S[2]),y:n[1]-S[1]});
+    if(q>=R&&pa<R){
+      let f=(R-pa)/Math.max(1e-12,q-pa);
+      let hit=[lr(px[0],n[0],f),lr(px[1],n[1],f),lr(px[2],n[2],f)];
+      return{ok:true,yError:hit[1]-T[1],crossError:(hit[0]-T[0])*rx+(hit[2]-T[2])*rz,ticks:t+f,position:hit,path};
+    }
+    pa=q;px=x;x=n;v=[v[0]+a[0],v[1]+a[1],v[2]+a[2]];
+    if(t>10&&x[1]<Math.min(S[1],T[1])-512&&v[1]<0)break;
+  }
+  return{ok:false,yError:Infinity,crossError:Infinity,ticks:-1,path};
+}
 function rf(P,Y,S,T,V,c){for(let i=0;i<12;i++){let b=sim(P,Y,S,T,V,c,false);if(!b.ok)return null;if(Math.hypot(b.yError,b.crossError)<.01)break;let st=.05,ps=sim(P+st,Y,S,T,V,c,false),ys=sim(P,Y+st,S,T,V,c,false);if(!ps.ok||!ys.ok)break;let a=(ps.yError-b.yError)/st,bb=(ys.yError-b.yError)/st,cc=(ps.crossError-b.crossError)/st,d=(ys.crossError-b.crossError)/st,det=a*d-bb*cc;if(Math.abs(det)<1e-9)break;P+=Math.max(-2,Math.min(2,(-b.yError*d+bb*b.crossError)/det));Y+=Math.max(-2,Math.min(2,(-a*b.crossError+b.yError*cc)/det));P=Math.max(c.minPitch,Math.min(c.maxPitch,P))}let f=sim(P,Y,S,T,V,c,true);return f.ok?{pitchDeg:P,yawDeg:Y,miss:Math.hypot(f.yError,f.crossError),...f}:null}
-function solve(S,T,V,c,arc){let dx=T[0]-S[0],dz=T[2]-S[2],R=Math.hypot(dx,dz);if(!(R>0)||!(V>0))return{ok:false};let B=Math.atan2(dx,dz)*180/Math.PI,s=[];for(let p=c.minPitch;p<=c.maxPitch;p++){let q=sim(p,B,S,T,V,c,false);if(q.ok&&Number.isFinite(q.yError))s.push({pitch:p,error:q.yError})}let roots=[];for(let i=1;i<s.length;i++){let a=s[i-1],b=s[i];if(a.error===0||a.error*b.error<=0)roots.push(lr(a.pitch,b.pitch,Math.abs(a.error)/Math.max(1e-12,Math.abs(a.error)+Math.abs(b.error))))}if(!roots.length&&s.length){s.sort((a,b)=>Math.abs(a.error)-Math.abs(b.error));roots.push(s[0].pitch)}let r=roots.map(p=>rf(p,B,S,T,V,c)).filter(Boolean).sort((a,b)=>a.pitchDeg-b.pitchDeg);if(!r.length)return{ok:false};let low=r[0],high=r.length>1?r[r.length-1]:null,selected=arc==="high"&&high?high:low;return{ok:selected.miss<=Math.max(1,c.allowedMiss||1),low,high,selected}}
-function sr(P,Y,S,V,c){let p=P*Math.PI/180,y=Y*Math.PI/180,h=Math.cos(p)*V,v=[Math.sin(y)*h,Math.sin(p)*V,Math.cos(y)*h],x=[...S],pr=[...S],mx=Math.min(20000,Math.max(1,c.maxTicks||2000));for(let t=0;t<mx;t++){let a=ac(x,v,t,c),n=[x[0]+v[0]+a[0]*.5,x[1]+v[1]+a[1]*.5,x[2]+v[2]+a[2]*.5];if(t>0&&n[1]<=S[1]){let f=(pr[1]-S[1])/Math.max(1e-12,pr[1]-n[1]),xx=lr(pr[0],n[0],f),z=lr(pr[2],n[2],f);return{range:Math.hypot(xx-S[0],z-S[2]),ticks:t+f}}pr=x;x=n;v=[v[0]+a[0],v[1]+a[1],v[2]+a[2]]}return{range:NaN,ticks:-1}}
+function refinePitchBracket(lo,hi,B,S,T,V,c){
+  let a=sim(lo,B,S,T,V,c,false),b=sim(hi,B,S,T,V,c,false);
+  if(!a.ok||!b.ok)return null;
+  if(Math.abs(a.yError)<1e-8)return lo;
+  if(Math.abs(b.yError)<1e-8)return hi;
+  if(a.yError*b.yError>0)return null;
+  for(let i=0;i<22;i++){
+    let mid=(lo+hi)*.5,m=sim(mid,B,S,T,V,c,false);
+    if(!m.ok){hi=mid;continue}
+    if(Math.abs(m.yError)<1e-8)return mid;
+    if(a.yError*m.yError<=0){hi=mid;b=m}else{lo=mid;a=m}
+  }
+  return(lo+hi)*.5;
+}
+function highestReachablePitch(lo,hi,B,S,T,V,c){
+  let a=sim(lo,B,S,T,V,c,false);
+  if(!a.ok)return null;
+  let b=sim(hi,B,S,T,V,c,false);
+  if(b.ok)return{pitch:hi,result:b};
+  let bestPitch=lo,best=a;
+  for(let i=0;i<22;i++){
+    let mid=(lo+hi)*.5,m=sim(mid,B,S,T,V,c,false);
+    if(m.ok){lo=mid;bestPitch=mid;best=m}else{hi=mid}
+  }
+  return{pitch:bestPitch,result:best};
+}
+function solve(S,T,V,c,arc){
+  let dx=T[0]-S[0],dz=T[2]-S[2],R=Math.hypot(dx,dz);
+  if(!(R>0)||!(V>0))return{ok:false,low:null,high:null,selected:null};
+  let B=Math.atan2(dx,dz)*180/Math.PI;
+  let minPitch=Math.max(-89,Number.isFinite(c.minPitch)?c.minPitch:-30);
+  let maxPitch=Math.min(89,Number.isFinite(c.maxPitch)?c.maxPitch:89);
+  if(!(maxPitch>minPitch))return{ok:false,low:null,high:null,selected:null};
+
+  const step=.25;
+  let samples=[],roots=[],lastValid=null,firstInvalidAfterValid=null,seenValid=false;
+  for(let p=minPitch;p<=maxPitch+1e-9;p+=step){
+    let pp=Math.min(p,maxPitch),q=sim(pp,B,S,T,V,c,false);
+    if(q.ok&&Number.isFinite(q.yError)){
+      seenValid=true;
+      let sample={pitch:pp,error:q.yError};
+      samples.push(sample);
+      lastValid=sample;
+    }else if(seenValid){
+      firstInvalidAfterValid=pp;
+      break;
+    }
+    if(pp===maxPitch)break;
+  }
+
+  for(let i=0;i<samples.length;i++){
+    let a=samples[i];
+    if(Math.abs(a.error)<1e-6)roots.push(a.pitch);
+    if(i===0)continue;
+    let b=samples[i-1];
+    if(a.pitch-b.pitch<=step*1.5&&b.error*a.error<0){
+      let root=refinePitchBracket(b.pitch,a.pitch,B,S,T,V,c);
+      if(root!==null)roots.push(root);
+    }
+  }
+
+  // The upper trajectory often sits in a very narrow interval immediately
+  // before the pitch at which horizontal range becomes unreachable. A fixed
+  // angle scan can skip it completely. Locate that reachability boundary by
+  // bisection and use it as the high-side sample for the upper root.
+  if(lastValid){
+    let boundary=null;
+    if(firstInvalidAfterValid!==null){
+      boundary=highestReachablePitch(lastValid.pitch,firstInvalidAfterValid,B,S,T,V,c);
+    }else{
+      let q=sim(maxPitch,B,S,T,V,c,false);
+      if(q.ok)boundary={pitch:maxPitch,result:q};
+    }
+    if(boundary&&Number.isFinite(boundary.result.yError)){
+      if(Math.abs(boundary.result.yError)<1e-6){
+        roots.push(boundary.pitch);
+      }else if(boundary.result.yError<0){
+        for(let i=samples.length-1;i>=0;i--){
+          let a=samples[i];
+          if(a.pitch>=boundary.pitch)continue;
+          if(a.error>0){
+            let root=refinePitchBracket(a.pitch,boundary.pitch,B,S,T,V,c);
+            if(root!==null)roots.push(root);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  roots.sort((a,b)=>a-b);
+  roots=roots.filter((p,i)=>i===0||Math.abs(p-roots[i-1])>.02);
+
+  if(!roots.length&&samples.length){
+    let best=samples.reduce((a,b)=>Math.abs(a.error)<=Math.abs(b.error)?a:b);
+    let candidate=rf(best.pitch,B,S,T,V,c);
+    if(candidate&&candidate.miss<=Math.max(1,c.allowedMiss||1))roots.push(candidate.pitchDeg);
+  }
+
+  let r=roots.map(p=>rf(p,B,S,T,V,c)).filter(Boolean).sort((a,b)=>a.pitchDeg-b.pitchDeg);
+  r=r.filter((v,i)=>i===0||Math.abs(v.pitchDeg-r[i-1].pitchDeg)>.02);
+  if(!r.length)return{ok:false,low:null,high:null,selected:null};
+  let low=r[0],high=r.length>1?r[r.length-1]:null;
+  let selected=arc==="high"?high:low;
+  return{ok:Boolean(selected&&selected.miss<=Math.max(1,c.allowedMiss||1)),low,high,selected};
+}
+function sr(P,Y,S,V,c){
+  let p=P*Math.PI/180,y=Y*Math.PI/180,cp=Math.cos(p);
+  let dir=[Math.sin(y)*cp,Math.sin(p),Math.cos(y)*cp];
+  let v=[dir[0]*V,dir[1]*V,dir[2]*V];
+  let L=Math.max(0,Number(c.barrelLength)||0);
+  let x=[S[0]+dir[0]*L,S[1]+dir[1]*L,S[2]+dir[2]*L],pr=[...x];
+  let mx=Math.min(20000,Math.max(1,c.maxTicks||2000));
+  for(let t=0;t<mx;t++){
+    let a=ac(x,v,t,c),n=[x[0]+v[0]+a[0]*.5,x[1]+v[1]+a[1]*.5,x[2]+v[2]+a[2]*.5];
+    if(t>0&&n[1]<=S[1]){
+      let den=pr[1]-n[1];
+      let f=Math.abs(den)>1e-12?(pr[1]-S[1])/den:0;
+      f=Math.max(0,Math.min(1,f));
+      let xx=lr(pr[0],n[0],f),z=lr(pr[2],n[2],f);
+      return{range:Math.hypot(xx-S[0],z-S[2]),ticks:t+f};
+    }
+    pr=x;x=n;v=[v[0]+a[0],v[1]+a[1],v[2]+a[2]];
+  }
+  return{range:NaN,ticks:-1};
+}
 function maximumRange(S,V,c,Y){let b={range:-Infinity,pitchDeg:null,ticks:-1};for(let p=Math.max(0,c.minPitch);p<=Math.min(89,c.maxPitch);p++){let r=sr(p,Y,S,V,c);if(r.range>b.range)b={...r,pitchDeg:p}}if(b.pitchDeg===null)return null;for(let p=Math.max(c.minPitch,b.pitchDeg-1);p<=Math.min(c.maxPitch,b.pitchDeg+1);p+=.1){let r=sr(p,Y,S,V,c);if(r.range>b.range)b={...r,pitchDeg:p}}return b}
 g.CBCRealisticBallistics={CANNONS,PROJECTILES,projectileDefaults,isProjectileCompatible,fixedMuzzleVelocity,windAt,solve,maximumRange};
 })(window);
