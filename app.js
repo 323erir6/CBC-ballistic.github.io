@@ -52,7 +52,9 @@ const I18N = {
     highSolution: "High solution",
     flightTime: "Flight time",
     speedBpt: "Speed",
-    yaw: "Yaw",
+    yaw: "Selected yaw",
+    lowYaw: "Low yaw",
+    highYaw: "High yaw",
     usedMethod: "Used method",
     currentDistance: "Current distance",
     maxDistance: "Max distance",
@@ -118,7 +120,9 @@ const I18N = {
     highSolution: "Высокая дуга",
     flightTime: "Время полета",
     speedBpt: "Скорость",
-    yaw: "Yaw",
+    yaw: "Yaw выбранной дуги",
+    lowYaw: "Yaw низкой дуги",
+    highYaw: "Yaw высокой дуги",
     usedMethod: "Метод",
     currentDistance: "Текущая дистанция",
     maxDistance: "Максимальная дистанция",
@@ -184,7 +188,9 @@ const I18N = {
     highSolution: "Висока дуга",
     flightTime: "Час польоту",
     speedBpt: "Швидкість",
-    yaw: "Yaw",
+    yaw: "Yaw обраної дуги",
+    lowYaw: "Yaw низької дуги",
+    highYaw: "Yaw високої дуги",
     usedMethod: "Метод",
     currentDistance: "Поточна дистанція",
     maxDistance: "Максимальна дистанція",
@@ -1110,6 +1116,15 @@ function renderAfterInputChange() {
   render();
 }
 
+// REALISTIC_SEPARATE_ARC_YAW_20260820_V1
+function motorYawForRealisticSolution(solution) {
+  if (!solution || !Number.isFinite(solution.yawDeg)) return null;
+  let motorYaw = -solution.yawDeg;
+  if (motorYaw >= 180) motorYaw -= 360;
+  if (motorYaw < -180) motorYaw += 360;
+  return motorYaw;
+}
+
 function render() {
   const opts = collectOptions();
   if (opts.calculatorType === "mianbao") {
@@ -1169,6 +1184,12 @@ function render() {
     $("chosenPitch").textContent = chosen ? `${fmt(chosen.pitchDeg, 4)}°` : "-";
     $("lowPitch").textContent = result.low ? `${fmt(result.low.pitchDeg, 4)}°` : "-";
     $("highPitch").textContent = result.high ? `${fmt(result.high.pitchDeg, 4)}°` : "-";
+
+    const lowMotorYaw = motorYawForRealisticSolution(result.low);
+    const highMotorYaw = motorYawForRealisticSolution(result.high);
+    $("lowYaw").textContent = lowMotorYaw === null ? "-" : `${fmt(lowMotorYaw, 4)}°`;
+    $("highYaw").textContent = highMotorYaw === null ? "-" : `${fmt(highMotorYaw, 4)}°`;
+
     $("flightTime").textContent = chosen
       ? `${fmt(chosen.ticks, 2)} ticks / ${fmt(chosen.ticks / TICKS_PER_SECOND, 2)} s` : "-";
     $("speedBpt").textContent = `${fmt(opts.speedBpt, 4)} m/tick`;
@@ -1180,10 +1201,8 @@ function render() {
     $("maxDistance").textContent = maximum && Number.isFinite(maximum.range)
       ? `${fmt(maximum.range, 3)} m @ ${fmt(maximum.pitchDeg, 2)}°` : "-";
     if (chosen) {
-      let motorYaw = -chosen.yawDeg;
-      if (motorYaw >= 180) motorYaw -= 360;
-      if (motorYaw < -180) motorYaw += 360;
-      $("yaw").textContent = `${fmt(motorYaw, 4)}°`;
+      const motorYaw = motorYawForRealisticSolution(chosen);
+      $("yaw").textContent = motorYaw === null ? "-" : `${fmt(motorYaw, 4)}°`;
       realisticYawHandled = true;
     }
     const debugConfig = { ...config };
@@ -1550,7 +1569,7 @@ function computeMaxDistance(opts, method = "original", props = null) {
 }
 
 function clearOutputs() {
-  ["chosenPitch", "lowPitch", "highPitch", "flightTime", "speedBpt", "usedMethod", "currentDistance", "maxDistance"].forEach((id) => {
+  ["chosenPitch", "lowPitch", "highPitch", "lowYaw", "highYaw", "flightTime", "speedBpt", "usedMethod", "currentDistance", "maxDistance"].forEach((id) => {
     $(id).textContent = "-";
   });
   const yawEl = $("yaw");
