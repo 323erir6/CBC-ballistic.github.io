@@ -1,0 +1,49 @@
+name: Realistic pitch calibration
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref }}
+
+      - name: Apply calibration
+        run: python3 .github/apply_realistic_pitch_calibration.py
+
+      - name: Validate
+        shell: bash
+        run: |
+          node --check app.js
+          node --check cbc_realistic_ballistics.js
+          grep -q 'REALISTIC_GAME_PITCH_CALIBRATION_20260820_V1' app.js
+          grep -Fq 'const REALISTIC_GAME_PITCH_CORRECTION_DEG = 1.0;' app.js
+          grep -Fq 'solution.pitchDeg + REALISTIC_GAME_PITCH_CORRECTION_DEG' app.js
+          grep -Fq 'effectiveHorizontalRange = actualHorizontalRange - syntheticRangeOffset' app.js
+          grep -Fq 'syntheticRangeOffset = Math.max(0, opts.length) * 0.5' app.js
+          grep -Fq 'worldSeed: opts.useCoords ?' app.js
+          grep -Fq 'id="calculateBtn"' index.html
+          grep -Fq 'cbc_realistic_ballistics.js?v=20260815-4' index.html
+          if grep -q 'REALISTIC_CROSSING_INTERPOLATION_FIX_20260820_V1' cbc_realistic_ballistics.js; then
+            echo 'The empirically reverted crossing interpolation fix returned unexpectedly'
+            exit 1
+          fi
+
+      - name: Commit calibration to PR branch
+        shell: bash
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.js index.html
+          git commit -m 'Calibrate CBC Realistic pitch for game trajectory'
+          git push origin HEAD:${{ github.head_ref }}
