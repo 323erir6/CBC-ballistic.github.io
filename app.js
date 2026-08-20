@@ -19,6 +19,7 @@ const I18N = {
     title: "Ballistic calculator",
     shotSetup: "Shot setup",
     reset: "Reset",
+    calculate: "Calculate",
     barrelLength: "Total cannon length",
     blocks: "blocks / meters",
     velocityMps: "Projectile speed",
@@ -84,6 +85,7 @@ const I18N = {
     title: "Баллистический калькулятор",
     shotSetup: "Параметры выстрела",
     reset: "Сброс",
+    calculate: "Рассчитать",
     barrelLength: "Общая длина пушки",
     blocks: "блоки / метры",
     velocityMps: "Скорость снаряда",
@@ -149,6 +151,7 @@ const I18N = {
     title: "Балістичний калькулятор",
     shotSetup: "Параметри пострілу",
     reset: "Скинути",
+    calculate: "Розрахувати",
     barrelLength: "Загальна довжина гармати",
     blocks: "блоки / метри",
     velocityMps: "Швидкість снаряда",
@@ -949,7 +952,7 @@ function collectOptions() {
 
 function collectRealisticConfig(opts) {
   return {
-    worldSeed: $("worldSeed").value,
+    worldSeed: opts.useCoords ? $("worldSeed").value : "0",
     dimensionId: $("dimensionId").value || "minecraft:overworld",
     weather: $("weatherMode").value,
     biomeTemperature: num("biomeTemperature"),
@@ -968,7 +971,7 @@ function collectRealisticConfig(opts) {
     gustSpeed: num("gustSpeed"),
     weatherAffectsWind: $("weatherAffectsWind").checked,
     windRegionSize: num("windRegionSize"),
-    seedSalt: $("windSeedSalt").value,
+    seedSalt: opts.useCoords ? $("windSeedSalt").value : "0",
     windDirectionVariation: num("windDirectionVariation"),
     windSpeedVariation: num("windSpeedVariation"),
     rainWindBonus: num("rainWindBonus"),
@@ -1082,6 +1085,28 @@ function renderMianbao(opts) {
     solution,
     maximumRange: maximum
   }, null, 2);
+}
+
+// MANUAL_REALISTIC_CALCULATE_20260820_V1
+function isManualRealisticMode() {
+  return $("calculatorType")?.value === "cbc" && $("method")?.value === "realistic";
+}
+
+function updateSeedVisibility() {
+  const visible = isManualRealisticMode() && Boolean($("useCoords")?.checked);
+  document.querySelectorAll(".seed-coordinate-only").forEach((element) => {
+    element.style.display = visible ? "" : "none";
+  });
+}
+
+function renderAfterInputChange() {
+  if (isManualRealisticMode()) {
+    clearOutputs();
+    setStatus(t("calculate"), "warn");
+    drawTrajectory(null, collectOptions());
+    return;
+  }
+  render();
 }
 
 function render() {
@@ -1625,8 +1650,9 @@ function applyLanguage(nextLang) {
   fillMethods();
   updateCalculatorType();
   updateInputMode();
+  updateSeedVisibility();
   syncCannonVelocity();
-  render();
+  renderAfterInputChange();
 }
 
 function fillProjectiles(preferredProjectile) {
@@ -1737,14 +1763,14 @@ fields.forEach((id) => {
   if (!el || id === "method" || id === "projectile") return;
   const update = () => {
     if (id === "length") syncCannonVelocity();
-    render();
+    renderAfterInputChange();
   };
   el.addEventListener("input", update);
   el.addEventListener("change", update);
 });
 
 // coordinate mode toggle should update UI
-if ($("useCoords")) $("useCoords").addEventListener("change", () => { updateInputMode(); render(); });
+if ($("useCoords")) $("useCoords").addEventListener("change", () => { updateInputMode(); updateSeedVisibility(); renderAfterInputChange(); });
 updateInputMode();
 
 // Ensure method/projectile changes toggle UI specifically
@@ -1752,26 +1778,29 @@ if ($("method")) $("method").addEventListener("change", () => {
   if ($("method").value === "realistic") syncRealisticProjectileDefaults();
   syncCannonVelocity();
   updateUIForMethod();
-  render();
+  updateSeedVisibility();
+  renderAfterInputChange();
 });
 if ($("projectile")) $("projectile").addEventListener("change", () => {
   if ($("method").value === "realistic") syncRealisticProjectileDefaults();
   syncCannonVelocity();
   updateUIForMethod();
-  render();
+  updateSeedVisibility();
+  renderAfterInputChange();
 });
 if ($("cannonProfile")) $("cannonProfile").addEventListener("change", () => {
   fillProjectiles($("projectile").value);
   syncRealisticProjectileDefaults();
   syncCannonVelocity();
-  render();
+  renderAfterInputChange();
 });
 if ($("calculatorType")) $("calculatorType").addEventListener("change", () => {
   if ($("calculatorType").value === "mianbao" && num("amax") === 60) $("amax").value = 89;
   if ($("calculatorType").value === "cbc" && num("amax") === 89) $("amax").value = 60;
   updateCalculatorType();
+  updateSeedVisibility();
   syncCannonVelocity();
-  render();
+  renderAfterInputChange();
 });
 if ($("rocketLauncher")) $("rocketLauncher").addEventListener("change", () => {
   fillRocketModes();
@@ -1785,4 +1814,5 @@ document.querySelectorAll("[data-lang]").forEach((btn) => {
   btn.addEventListener("click", () => applyLanguage(btn.dataset.lang));
 });
 $("resetBtn").addEventListener("click", resetDefaults);
+if ($("calculateBtn")) $("calculateBtn").addEventListener("click", render);
 applyLanguage(lang);

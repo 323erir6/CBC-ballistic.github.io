@@ -314,3 +314,27 @@ pre {
     grid-template-columns: 1fr;
   }
 }
+
+.calculate-primary {
+  width: 100%;
+  min-height: 54px;
+  margin-top: 16px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: #04110e;
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 0 0 1px rgba(68, 215, 182, 0.16), 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.calculate-primary:hover {
+  filter: brightness(1.08);
+}
+
+.calculate-primary:active {
+  transform: translateY(1px);
+}
