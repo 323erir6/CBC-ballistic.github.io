@@ -1214,7 +1214,7 @@ function render() {
       selected: result.selected ? { ...result.selected, path: undefined } : null
     };
     debugObj = {
-      source: "CBC Realistic Ballistics 1.3.2 browser port",
+      source: "CBC Realistic Ballistics browser port",
       method: "realistic",
       projectile: opts.projectile,
       cannonProfile: $("cannonProfile")?.value,
@@ -1718,7 +1718,7 @@ function resetDefaults() {
   $("gravity").value = 0.05;
   $("drag").value = 0.99;
   $("maxDelta").value = 1;
-  $("maxSteps").value = 1000000;
+  $("maxSteps").value = 10000;
   $("iterations").value = 5;
   $("elements").value = 20;
   $("checkImpossible").checked = true;
