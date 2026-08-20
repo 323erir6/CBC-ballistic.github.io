@@ -1,0 +1,230 @@
+name: Apply requested calculator patch
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref }}
+
+      - name: Apply requested changes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          app_path = Path('app.js')
+          index_path = Path('index.html')
+          app = app_path.read_text(encoding='utf-8')
+          index = index_path.read_text(encoding='utf-8')
+
+          marker = 'REQUESTED_ROLLBACK_PATCH_20260820_V1'
+          if marker in app:
+              print('Patch already applied')
+              raise SystemExit(0)
+
+          # 1) Calculate button translations.
+          for old, new in [
+              ('    reset: "Reset",', '    reset: "Reset",\n    calculate: "Calculate",'),
+              ('    reset: "Сброс",', '    reset: "Сброс",\n    calculate: "Рассчитать",'),
+              ('    reset: "Скинути",', '    reset: "Скинути",\n    calculate: "Розрахувати",'),
+          ]:
+              if old not in app:
+                  raise SystemExit(f'Missing translation anchor: {old}')
+              app = app.replace(old, new, 1)
+
+          # 2) Seed exists only in coordinate mode, both visually and physically.
+          app = app.replace('    worldSeed: $("worldSeed").value,',
+                            '    worldSeed: opts.useCoords ? $("worldSeed").value : "0",', 1)
+          app = app.replace('    seedSalt: $("windSeedSalt").value,',
+                            '    seedSalt: opts.useCoords ? $("windSeedSalt").value : "0",', 1)
+
+          # Patch both duplicate updateInputMode() definitions in this historical state.
+          old_tail = '''  if (use) {
+    if (distEl) distEl.style.display = "none";
+    if (heightEl) heightEl.style.display = "none";
+    if (coordsEl) coordsEl.style.display = "";
+  } else {
+    if (distEl) distEl.style.display = "";
+    if (heightEl) heightEl.style.display = "";
+    if (coordsEl) coordsEl.style.display = "none";
+  }
+}'''
+          new_tail = '''  if (use) {
+    if (distEl) distEl.style.display = "none";
+    if (heightEl) heightEl.style.display = "none";
+    if (coordsEl) coordsEl.style.display = "";
+  } else {
+    if (distEl) distEl.style.display = "";
+    if (heightEl) heightEl.style.display = "";
+    if (coordsEl) coordsEl.style.display = "none";
+  }
+
+  const realistic = $("calculatorType")?.value === "cbc" && $("method")?.value === "realistic";
+  document.querySelectorAll(".seed-coordinate-only").forEach((el) => {
+    el.style.display = use && realistic ? "" : "none";
+  });
+}'''
+          count = app.count(old_tail)
+          if count < 1:
+              raise SystemExit('Could not patch updateInputMode')
+          app = app.replace(old_tail, new_tail)
+
+          # 3) Only CBC Realistic waits for the Calculate button.
+          anchor = 'function render() {\n'
+          helper = '''// REQUESTED_ROLLBACK_PATCH_20260820_V1
+function isRealisticMode() {
+  return $("calculatorType")?.value === "cbc" && $("method")?.value === "realistic";
+}
+
+function renderAfterInputChange() {
+  if (isRealisticMode()) {
+    clearOutputs();
+    setStatus(t("calculate"), "");
+    drawTrajectory(null, collectOptions());
+    return;
+  }
+  render();
+}
+
+function render() {
+'''
+          if anchor not in app:
+              raise SystemExit('render() anchor missing')
+          app = app.replace(anchor, helper, 1)
+
+          # 4) Artificial range correction requested by the user:
+          #    effective horizontal range = actual horizontal range - cannonLength * 0.5
+          old_solve = '    result = physics.solve(cannon, target, opts.speedBpt, config, opts.preferArc);'
+          new_solve = '''    const actualDx = target[0] - cannon[0];
+    const actualDz = target[2] - cannon[2];
+    const actualHorizontalRange = Math.hypot(actualDx, actualDz);
+    const syntheticRangeOffset = Math.max(0, opts.length) * 0.5;
+    const effectiveHorizontalRange = actualHorizontalRange - syntheticRangeOffset;
+    if (!(effectiveHorizontalRange > 0)) {
+      setStatus(t("noSolution"), "bad");
+      clearOutputs();
+      drawTrajectory(null, opts);
+      return;
+    }
+    const horizontalScale = effectiveHorizontalRange / actualHorizontalRange;
+    const calculationTarget = [
+      cannon[0] + actualDx * horizontalScale,
+      target[1],
+      cannon[2] + actualDz * horizontalScale
+    ];
+
+    result = physics.solve(cannon, calculationTarget, opts.speedBpt, config, opts.preferArc);'''
+          if old_solve not in app:
+              raise SystemExit('Realistic solve anchor missing')
+          app = app.replace(old_solve, new_solve, 1)
+
+          old_debug = '      target,\n      velocityMps: opts.speedMps,'
+          new_debug = '''      target,
+      calculationTarget,
+      actualHorizontalRange,
+      syntheticRangeOffset,
+      effectiveHorizontalRange,
+      velocityMps: opts.speedMps,'''
+          if old_debug not in app:
+              raise SystemExit('Debug target anchor missing')
+          app = app.replace(old_debug, new_debug, 1)
+
+          # Replace automatic recalculation only in the UI event section.
+          app = app.replace('if ($("useCoords")) $("useCoords").addEventListener("change", () => { updateInputMode(); render(); });',
+                            'if ($("useCoords")) $("useCoords").addEventListener("change", () => { updateInputMode(); renderAfterInputChange(); });', 1)
+
+          event_start = app.index('fields.forEach((id) => {')
+          event_end = app.index('document.querySelectorAll("[data-lang]")', event_start)
+          event_block = app[event_start:event_end]
+          event_block = event_block.replace('    render();', '    renderAfterInputChange();')
+          event_block = event_block.replace('  render();', '  renderAfterInputChange();')
+          # Method/calculator changes can alter seed visibility.
+          event_block = event_block.replace('  updateUIForMethod();\n  renderAfterInputChange();',
+                                            '  updateUIForMethod();\n  updateInputMode();\n  renderAfterInputChange();')
+          event_block = event_block.replace('  updateCalculatorType();\n  syncCannonVelocity();\n  renderAfterInputChange();',
+                                            '  updateCalculatorType();\n  updateInputMode();\n  syncCannonVelocity();\n  renderAfterInputChange();')
+          app = app[:event_start] + event_block + app[event_end:]
+
+          # Language changes must not silently run the expensive Realistic solve.
+          app = app.replace('  updateCalculatorType();\n  updateInputMode();\n  syncCannonVelocity();\n  render();\n}',
+                            '  updateCalculatorType();\n  updateInputMode();\n  syncCannonVelocity();\n  renderAfterInputChange();\n}', 1)
+
+          # Explicit Calculate button runs the actual solver.
+          old_reset_listener = '$("resetBtn").addEventListener("click", resetDefaults);\napplyLanguage(lang);'
+          new_reset_listener = '$("resetBtn").addEventListener("click", resetDefaults);\nif ($("calculateBtn")) $("calculateBtn").addEventListener("click", render);\napplyLanguage(lang);'
+          if old_reset_listener not in app:
+              raise SystemExit('Bottom listener anchor missing')
+          app = app.replace(old_reset_listener, new_reset_listener, 1)
+
+          # HTML: mark seed controls as coordinate-only.
+          old_world = '''            <label>
+              <span data-i18n="worldSeed">World seed</span>
+              <input id="worldSeed" type="text" inputmode="numeric" value="0">'''
+          new_world = '''            <label class="seed-coordinate-only">
+              <span data-i18n="worldSeed">World seed</span>
+              <input id="worldSeed" type="text" inputmode="numeric" value="0">'''
+          if old_world not in index:
+              raise SystemExit('World seed HTML anchor missing')
+          index = index.replace(old_world, new_world, 1)
+          index = index.replace('<label class="method-realistic"><span>Wind seed salt</span><input id="windSeedSalt"',
+                                '<label class="method-realistic seed-coordinate-only"><span>Wind seed salt</span><input id="windSeedSalt"', 1)
+
+          # Add Calculate button immediately after detailed settings.
+          details_anchor = '''          </details>
+        </form>'''
+          details_new = '''          </details>
+          <button class="ghost method-realistic" type="button" id="calculateBtn" data-i18n="calculate" style="width:100%;margin-top:12px;">Calculate</button>
+        </form>'''
+          if details_anchor not in index:
+              raise SystemExit('Calculate button anchor missing')
+          index = index.replace(details_anchor, details_new, 1)
+
+          # Browser cache bust for the changed application code.
+          index = re.sub(r'app\.js\?v=[^"\']+', 'app.js?v=20260820-rollback1', index, count=1)
+
+          app_path.write_text(app, encoding='utf-8')
+          index_path.write_text(index, encoding='utf-8')
+          PY
+
+      - name: Validate
+        shell: bash
+        run: |
+          node --check app.js
+          node --check cbc_realistic_ballistics.js
+          grep -q 'REQUESTED_ROLLBACK_PATCH_20260820_V1' app.js
+          grep -q 'effectiveHorizontalRange = actualHorizontalRange - syntheticRangeOffset' app.js
+          grep -q 'syntheticRangeOffset = Math.max(0, opts.length) \* 0.5' app.js
+          grep -q 'worldSeed: opts.useCoords ?' app.js
+          grep -q 'seedSalt: opts.useCoords ?' app.js
+          grep -q 'id="calculateBtn"' index.html
+          grep -q 'seed-coordinate-only' index.html
+          if grep -q 'barrelLength: Math.max(0, opts.length)' app.js; then
+            echo 'Unexpected full-length muzzle shift from later version is present'
+            exit 1
+          fi
+          if grep -q 'REALISTIC_MUZZLE_AND_TWO_ARCS_V1' app.js; then
+            echo 'Unexpected later solver patch is present'
+            exit 1
+          fi
+
+      - name: Commit requested patch
+        shell: bash
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.js index.html
+          git commit -m 'Add Calculate, coordinate seed, and half-length range offset'
+          git push origin HEAD:${{ github.head_ref }}
