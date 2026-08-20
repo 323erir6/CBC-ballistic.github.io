@@ -27,8 +27,8 @@ jobs:
           node --check cbc_realistic_ballistics.js
           grep -q 'REALISTIC_CALIBER_SYNC_20260820_V1' cbc_realistic_ballistics.js
           grep -Fq 'cbc_at:(?:medium_)?(?:ap|flak|he|hei|hef|heat)_rocket$/.test(v))return .2' cbc_realistic_ballistics.js
-          if grep -Fq 'cbcmoreshells:(?:normal_|extended_)' cbc_realistic_ballistics.js; then
-            echo 'Obsolete 0.4 m More Shells override is still present'
+          if grep -Fq 'if(/^cbcmoreshells:(?:normal_|extended_)/.test(v))return .4' cbc_realistic_ballistics.js; then
+            echo 'Obsolete 0.4 m More Shells diameter override is still present'
             exit 1
           fi
           if grep -q 'REALISTIC_GAME_PITCH_CALIBRATION_20260820_V1' app.js; then
