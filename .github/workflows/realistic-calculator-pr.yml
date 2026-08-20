@@ -1,0 +1,53 @@
+name: Requested calculator patch
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref }}
+
+      - name: Apply requested patch
+        run: python3 .github/apply_requested_patch.py
+
+      - name: Validate JavaScript and requested behaviour
+        shell: bash
+        run: |
+          node --check app.js
+          node --check cbc_realistic_ballistics.js
+          grep -q 'REQUESTED_ROLLBACK_PATCH_20260820_V1' app.js
+          grep -q 'syntheticRangeOffset = Math.max(0, opts.length) \* 0.5' app.js
+          grep -q 'effectiveHorizontalRange = actualHorizontalRange - syntheticRangeOffset' app.js
+          grep -q 'worldSeed: opts.useCoords ?' app.js
+          grep -q 'seedSalt: opts.useCoords ?' app.js
+          grep -q 'id="calculateBtn"' index.html
+          grep -q 'seed-coordinate-only' index.html
+          if grep -q 'barrelLength: Math.max(0, opts.length)' app.js; then
+            echo 'Later full-length muzzle shift must not be present'
+            exit 1
+          fi
+          if grep -q 'REALISTIC_MUZZLE_AND_TWO_ARCS_V1' app.js; then
+            echo 'Later solver rewrite must not be present'
+            exit 1
+          fi
+          git diff --exit-code -- cbc_realistic_ballistics.js
+
+      - name: Commit requested patch to PR branch
+        shell: bash
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.js index.html
+          git commit -m 'Add Calculate, coordinate seed, and half-length range offset'
+          git push origin HEAD:${{ github.head_ref }}
