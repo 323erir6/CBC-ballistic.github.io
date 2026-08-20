@@ -1051,9 +1051,7 @@ function renderMianbao(opts) {
   $("speedBpt").textContent = `${fmt(mode.speed, 3)} m/tick / ${Math.round(mode.speed * TICKS_PER_SECOND)} m/s`;
   $("usedMethod").textContent = t("mianbaoMethod");
 
-  let yawDeg = -Math.atan2(dx, dz) * 180 / Math.PI;
-  if (yawDeg >= 180) yawDeg -= 360;
-  if (yawDeg < -180) yawDeg += 360;
+  const yawDeg = mathematicalYawFromDelta(dx, dz);
   $("yaw").textContent = `${fmt(yawDeg, 4)}°`;
 
   if (!solution.ok) {
@@ -1121,13 +1119,21 @@ function renderAfterInputChange() {
   render();
 }
 
-// REALISTIC_SEPARATE_ARC_YAW_20260820_V1
-function motorYawForRealisticSolution(solution) {
+function normalizeMathematicalYaw(yawDeg) {
+  while (yawDeg >= 180) yawDeg -= 360;
+  while (yawDeg < -180) yawDeg += 360;
+  return yawDeg;
+}
+
+// Mathematical yaw used by every calculator: 0 = +Z and positive rotation
+// points toward +X. Never convert this value to Minecraft/motor direction.
+function mathematicalYawFromDelta(dx, dz) {
+  return normalizeMathematicalYaw(Math.atan2(dx, dz) * 180 / Math.PI);
+}
+
+function mathematicalYawForRealisticSolution(solution) {
   if (!solution || !Number.isFinite(solution.yawDeg)) return null;
-  let motorYaw = -solution.yawDeg;
-  if (motorYaw >= 180) motorYaw -= 360;
-  if (motorYaw < -180) motorYaw += 360;
-  return motorYaw;
+  return normalizeMathematicalYaw(solution.yawDeg);
 }
 
 function render() {
@@ -1190,10 +1196,10 @@ function render() {
     $("lowPitch").textContent = result.low ? `${fmt(result.low.pitchDeg, 4)}°` : "-";
     $("highPitch").textContent = result.high ? `${fmt(result.high.pitchDeg, 4)}°` : "-";
 
-    const lowMotorYaw = motorYawForRealisticSolution(result.low);
-    const highMotorYaw = motorYawForRealisticSolution(result.high);
-    $("lowYaw").textContent = lowMotorYaw === null ? "-" : `${fmt(lowMotorYaw, 4)}°`;
-    $("highYaw").textContent = highMotorYaw === null ? "-" : `${fmt(highMotorYaw, 4)}°`;
+    const lowMathematicalYaw = mathematicalYawForRealisticSolution(result.low);
+    const highMathematicalYaw = mathematicalYawForRealisticSolution(result.high);
+    $("lowYaw").textContent = lowMathematicalYaw === null ? "-" : `${fmt(lowMathematicalYaw, 4)}°`;
+    $("highYaw").textContent = highMathematicalYaw === null ? "-" : `${fmt(highMathematicalYaw, 4)}°`;
 
     $("flightTime").textContent = chosen
       ? `${fmt(chosen.ticks, 2)} ticks / ${fmt(chosen.ticks / TICKS_PER_SECOND, 2)} s` : "-";
@@ -1206,8 +1212,8 @@ function render() {
     $("maxDistance").textContent = maximum && Number.isFinite(maximum.range)
       ? `${fmt(maximum.range, 3)} m @ ${fmt(maximum.pitchDeg, 2)}°` : "-";
     if (chosen) {
-      const motorYaw = motorYawForRealisticSolution(chosen);
-      $("yaw").textContent = motorYaw === null ? "-" : `${fmt(motorYaw, 4)}°`;
+      const mathematicalYaw = mathematicalYawForRealisticSolution(chosen);
+      $("yaw").textContent = mathematicalYaw === null ? "-" : `${fmt(mathematicalYaw, 4)}°`;
       realisticYawHandled = true;
     }
     const debugConfig = { ...config };
@@ -1454,10 +1460,7 @@ function render() {
   if (!realisticYawHandled && opts.useCoords) {
     const dxYaw = target[0] - cannon[0];
     const dzYaw = target[2] - cannon[2];
-    // invert yaw: make right negative, left positive by negating atan2 result
-    let yawDeg = -Math.atan2(dxYaw, dzYaw) * 180 / Math.PI; // 0 = +Z
-    if (yawDeg >= 180) yawDeg -= 360;
-    if (yawDeg < -180) yawDeg += 360;
+    const yawDeg = mathematicalYawFromDelta(dxYaw, dzYaw);
     $("yaw").textContent = `${fmt(yawDeg, 4)}°`;
   } else if (!realisticYawHandled) {
     $("yaw").textContent = "";
@@ -1587,10 +1590,7 @@ function clearOutputs() {
     const targetZ = $("targetZ") ? num("targetZ") : 0;
     const dxYaw = targetX - cannonX;
     const dzYaw = targetZ - cannonZ;
-    // invert yaw: make right negative, left positive by negating atan2 result
-    let yawDeg = -Math.atan2(dxYaw, dzYaw) * 180 / Math.PI; // 0 = +Z
-    if (yawDeg >= 180) yawDeg -= 360;
-    if (yawDeg < -180) yawDeg += 360;
+    const yawDeg = mathematicalYawFromDelta(dxYaw, dzYaw);
     yawEl.textContent = `${fmt(yawDeg, 4)}°`;
   } else if (yawEl) {
     yawEl.textContent = "";
