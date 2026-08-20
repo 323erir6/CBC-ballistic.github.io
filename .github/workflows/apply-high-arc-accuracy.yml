@@ -1,0 +1,48 @@
+name: Apply High arc accuracy fix
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply patch
+        run: python3 .github/apply_high_arc_accuracy_fix.py
+
+      - name: Validate syntax and isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check cbc_realistic_ballistics.js
+          node --check app.js
+          grep -q 'REALISTIC_HIGH_ARC_ACCURACY_20260820_V2' cbc_realistic_ballistics.js
+          grep -q 'function simHigh' cbc_realistic_ballistics.js
+          grep -q 'function rfHigh' cbc_realistic_ballistics.js
+          grep -q 'q=simHigh(p,B,S,T,V,hc,false)' cbc_realistic_ballistics.js
+          grep -q 'x.miss<=Math.max(1,hc.allowedMiss||1)' cbc_realistic_ballistics.js
+          grep -q 'maxTicks:Math.max(10000,c.maxTicks||0)' cbc_realistic_ballistics.js
+          grep -q 'cbc_realistic_ballistics.js?v=20260820-higharc2' index.html
+          # Historical low solver must still exist unchanged and remain the low scan path.
+          grep -q 'let lowScanMax=Math.min(c.maxPitch,60),s=\[\];for(let p=c.minPitch;p<=lowScanMax;p++){let q=sim(p,B,S,T,V,c,false)' cbc_realistic_ballistics.js
+          grep -q 'roots.map(p=>rf(p,B,S,T,V,c))' cbc_realistic_ballistics.js
+
+      - name: Commit requested changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cbc_realistic_ballistics.js index.html
+          git commit -m 'Fix High arc interpolation and maximum range'
+          git push
