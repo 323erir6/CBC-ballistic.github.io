@@ -259,9 +259,6 @@ fields.push(
   "targetZ"
 );
 
-// add coordinate-related fields so changes re-render
-fields.push("useCoords", "cannonX", "cannonY", "cannonZ", "targetX", "targetY", "targetZ");
-
 let lang = localStorage.getItem("cbcCalcLang") || "uk";
 
 function rad(deg) {
@@ -758,32 +755,16 @@ function updateInputMode() {
   const distEl = $("distance") ? $("distance").parentElement : null;
   const heightEl = $("heightDelta") ? $("heightDelta").parentElement : null;
   const coordsEl = $("coordsGroup");
-  const worldSeedEl = $("worldSeed");
-  if (worldSeedEl) {
-    worldSeedEl.disabled = !use;
-    worldSeedEl.title = use ? "" : "Enable coordinate input to use the world seed";
-  }
-  if (use) {
-    if (distEl) distEl.style.display = "none";
-    if (heightEl) heightEl.style.display = "none";
-    if (coordsEl) coordsEl.style.display = "";
-  } else {
-    if (distEl) distEl.style.display = "";
-    if (heightEl) heightEl.style.display = "";
-    if (coordsEl) coordsEl.style.display = "none";
-  }
-}
 
-function updateInputMode() {
-  const use = $("useCoords") && $("useCoords").checked;
-  const distEl = $("distance") ? $("distance").parentElement : null;
-  const heightEl = $("heightDelta") ? $("heightDelta").parentElement : null;
-  const coordsEl = $("coordsGroup");
+  document.querySelectorAll(".seed-coordinate-only").forEach((el) => {
+    el.style.display = use && isRealisticMode() ? "" : "none";
+  });
+
   const worldSeedEl = $("worldSeed");
-  if (worldSeedEl) {
-    worldSeedEl.disabled = !use;
-    worldSeedEl.title = use ? "" : "Enable coordinate input to use the world seed";
-  }
+  if (worldSeedEl) worldSeedEl.disabled = !use;
+  const windSeedSaltEl = $("windSeedSalt");
+  if (windSeedSaltEl) windSeedSaltEl.disabled = !use;
+
   if (use) {
     if (distEl) distEl.style.display = "none";
     if (heightEl) heightEl.style.display = "none";
@@ -963,7 +944,7 @@ function collectOptions() {
 
 function collectRealisticConfig(opts) {
   return {
-    worldSeed: $("worldSeed").value,
+    worldSeed: opts.useCoords ? $("worldSeed").value : "0",
     dimensionId: $("dimensionId").value || "minecraft:overworld",
     weather: $("weatherMode").value,
     biomeTemperature: num("biomeTemperature"),
@@ -983,7 +964,7 @@ function collectRealisticConfig(opts) {
     gustSpeed: num("gustSpeed"),
     weatherAffectsWind: $("weatherAffectsWind").checked,
     windRegionSize: num("windRegionSize"),
-    seedSalt: $("windSeedSalt").value,
+    seedSalt: opts.useCoords ? $("windSeedSalt").value : "0",
     windDirectionVariation: num("windDirectionVariation"),
     windSpeedVariation: num("windSpeedVariation"),
     rainWindBonus: num("rainWindBonus"),
@@ -1100,15 +1081,27 @@ function renderMianbao(opts) {
 }
 
 // REALISTIC_CALCULATOR_FIX_20260820_V3
+// REALISTIC_MANUAL_ONLY_20260820_V1
 function isRealisticMode() {
   return $("calculatorType")?.value === "cbc" && $("method")?.value === "realistic";
+}
+
+function clearTrajectoryForPendingCalculation() {
+  const canvas = $("trajectory");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#07090b";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#8c96a6";
+  ctx.fillText(t("calculate"), 24, 34);
 }
 
 function renderAfterInputChange() {
   if (isRealisticMode()) {
     clearOutputs();
     setStatus(t("calculate"), "");
-    drawTrajectory(null, collectOptions());
+    clearTrajectoryForPendingCalculation();
     return;
   }
   render();
@@ -1812,11 +1805,11 @@ if ($("calculatorType")) $("calculatorType").addEventListener("change", () => {
 });
 if ($("rocketLauncher")) $("rocketLauncher").addEventListener("change", () => {
   fillRocketModes();
-  render();
+  renderAfterInputChange();
 });
 if ($("rocketMode")) $("rocketMode").addEventListener("change", () => {
   syncRocketModeDefaults();
-  render();
+  renderAfterInputChange();
 });
 document.querySelectorAll("[data-lang]").forEach((btn) => {
   btn.addEventListener("click", () => applyLanguage(btn.dataset.lang));

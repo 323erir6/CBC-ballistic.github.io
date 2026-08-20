@@ -67,7 +67,7 @@
               <select id="cannonProfile"></select>
               <small data-i18n="cannonVariantsHint">All equivalent material variants are grouped</small>
             </label>
-            <label>
+            <label id="worldSeedField" class="seed-coordinate-only">
               <span data-i18n="worldSeed">World seed</span>
               <input id="worldSeed" type="text" inputmode="numeric" value="0">
               <small data-i18n="worldSeedHint">Required for the exact static wind field</small>
@@ -187,7 +187,7 @@
               <label class="method-realistic"><span>Spatial gust amplitude (m/s)</span><input id="gustSpeed" type="number" min="0" step="0.1" value="3"></label>
               <label class="method-realistic check"><input id="weatherAffectsWind" type="checkbox" checked><span>Weather affects wind</span></label>
               <label class="method-realistic"><span>Wind region size (m)</span><input id="windRegionSize" type="number" min="16" step="16" value="2048"></label>
-              <label class="method-realistic"><span>Wind seed salt</span><input id="windSeedSalt" type="text" inputmode="numeric" value="0"></label>
+              <label class="method-realistic seed-coordinate-only"><span>Wind seed salt</span><input id="windSeedSalt" type="text" inputmode="numeric" value="0"></label>
               <label class="method-realistic"><span>Direction variation (°)</span><input id="windDirectionVariation" type="number" min="0" max="180" step="1" value="45"></label>
               <label class="method-realistic"><span>Speed variation fraction</span><input id="windSpeedVariation" type="number" min="0" max="1" step="0.01" value="0.35"></label>
               <label class="method-realistic"><span>Rain wind bonus (m/s)</span><input id="rainWindBonus" type="number" min="0" step="0.1" value="5"></label>
@@ -277,7 +277,7 @@
       </section>
     </main>
     <script src="mianbao_ballistics.js?v=20260815-4"></script>
-    <script src="cbc_realistic_ballistics.js?v=20260820-5"></script>
-    <script src="app.js?v=20260820-5"></script>
+    <script src="cbc_realistic_ballistics.js?v=20260820-6"></script>
+    <script src="app.js?v=20260820-6"></script>
   </body>
 </html>
