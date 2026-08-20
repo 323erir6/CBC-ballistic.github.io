@@ -1,22 +1,21 @@
 name: Fix realistic muzzle reference
 
-# one-shot patch trigger
 on:
-  push:
+  pull_request:
     branches: [main]
-    paths:
-      - '.github/workflows/fix-realistic-muzzle-reference.yml'
 
 permissions:
   contents: write
 
 jobs:
   patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.head_ref }}
 
       - name: Patch calculator
         shell: bash
@@ -56,36 +55,30 @@ jobs:
 
           old = '  "length",\n  "speedMps",'
           new = '  "length",\n  "muzzleOffset",\n  "speedMps",'
-          if old not in app:
-              raise SystemExit('fields anchor missing')
+          if old not in app: raise SystemExit('fields anchor missing')
           app = app.replace(old, new, 1)
 
           old = '    length: num("length"),\n    speedMps: num("speedMps"),'
           new = '    length: num("length"),\n    muzzleOffset: Math.max(0, num("muzzleOffset")),\n    speedMps: num("speedMps"),'
-          if old not in app:
-              raise SystemExit('collectOptions anchor missing')
+          if old not in app: raise SystemExit('collectOptions anchor missing')
           app = app.replace(old, new, 1)
 
           old = '    barrelLength: Math.max(0, opts.length),'
-          new = ('    // RealisticFlightModel only changes forces after CBC has already spawned the projectile.\n'
-                 '    // The entered cannon coordinates may be a mount/controller reference, so total cannon\n'
-                 '    // length is not a valid universal muzzle offset.\n'
+          new = ('    // CBC Realistic Ballistics changes forces after CBC has spawned the projectile.\n'
+                 '    // Total cannon length is not the universal controller/pivot -> muzzle distance.\n'
                  '    barrelLength: Math.max(0, opts.muzzleOffset),')
-          if old not in app:
-              raise SystemExit('old realistic barrelLength mapping missing')
+          if old not in app: raise SystemExit('old realistic barrelLength mapping missing')
           app = app.replace(old, new, 1)
 
           old = '  $("length").value = 8;\n  $("speedMps").value = 400;'
           new = '  $("length").value = 8;\n  if ($("muzzleOffset")) $("muzzleOffset").value = 0;\n  $("speedMps").value = 400;'
-          if old not in app:
-              raise SystemExit('reset anchor missing')
+          if old not in app: raise SystemExit('reset anchor missing')
           app = app.replace(old, new, 1)
 
           old = '      note: "Matches the mod trajectory model. Flight begins at the muzzle computed from cannon coordinates, solved yaw/pitch and total cannon length.",'
           new = ('      note: "Matches the mod trajectory model. Total cannon length controls weapon velocity where applicable; projectile start uses the independent muzzle offset from the entered cannon reference.",\n'
                  '      muzzleOffset: opts.muzzleOffset,')
-          if old not in app:
-              raise SystemExit('debug note anchor missing')
+          if old not in app: raise SystemExit('debug note anchor missing')
           app = app.replace(old, new, 1)
 
           app = app.replace('// REALISTIC_MANUAL_ONLY_20260820_V1',
@@ -110,8 +103,7 @@ jobs:
             <input id="muzzleOffset" type="number" min="0" step="0.1" value="0">
             <small data-i18n="muzzleOffsetHint">Distance along the barrel from the entered cannon reference point to the actual projectile spawn point. This is NOT necessarily the total cannon length.</small>
           </label>'''
-          if anchor not in index:
-              raise SystemExit('realistic cannon input block missing')
+          if anchor not in index: raise SystemExit('realistic cannon input block missing')
           index = index.replace(anchor, replacement, 1)
 
           index = re.sub(r'cbc_realistic_ballistics\.js\?v=[^"\']+', 'cbc_realistic_ballistics.js?v=20260820-7', index, count=1)
@@ -119,7 +111,6 @@ jobs:
 
           app_path.write_text(app, encoding='utf-8')
           index_path.write_text(index, encoding='utf-8')
-          print('Realistic muzzle reference fix applied.')
           PY
 
       - name: Validate
@@ -129,18 +120,16 @@ jobs:
           grep -q 'REALISTIC_MUZZLE_REFERENCE_FIX_20260820_V1' app.js
           grep -q 'muzzleOffset: Math.max(0, num("muzzleOffset"))' app.js
           grep -q 'barrelLength: Math.max(0, opts.muzzleOffset)' app.js
-          if grep -q 'barrelLength: Math.max(0, opts.length)' app.js; then
-            echo 'Total cannon length is still incorrectly used as Realistic spawn offset.'
-            exit 1
-          fi
+          ! grep -q 'barrelLength: Math.max(0, opts.length)' app.js
           grep -q 'id="muzzleOffset"' index.html
           grep -q 'app.js?v=20260820-7' index.html
 
-      - name: Commit patch
+      - name: Commit patch to PR branch
         shell: bash
         run: |
+          if git diff --quiet; then exit 0; fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add app.js index.html
           git commit -m 'Separate realistic muzzle offset from cannon length'
-          git push
+          git push origin HEAD:${{ github.head_ref }}
