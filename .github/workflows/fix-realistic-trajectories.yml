@@ -3,22 +3,21 @@ name: Fix realistic trajectories
 on:
   pull_request:
     branches: [main]
-  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   patch-and-test:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.head_ref || github.ref_name }}
+          ref: ${{ github.head_ref }}
 
-      - name: Patch calculator
+      - name: Patch realistic solver
         shell: bash
         run: |
           python3 - <<'PY'
@@ -33,10 +32,8 @@ jobs:
           app = app_path.read_text(encoding='utf-8')
           index = index_path.read_text(encoding='utf-8')
 
-          marker = 'REALISTIC_MANUAL_CALCULATE_V2'
-          if marker in app:
-              print('Calculator patch already applied.')
-          else:
+          marker = 'REALISTIC_MUZZLE_AND_TWO_ARCS_V1'
+          if marker not in app:
               new_sim = r'''function sim(P,Y,S,T,V,c,pathOn){
                 let y=Y*Math.PI/180,p=P*Math.PI/180,cp=Math.cos(p);
                 let dir=[Math.sin(y)*cp,Math.sin(p),Math.cos(y)*cp];
@@ -71,10 +68,10 @@ jobs:
                 if(!a.ok||!b.ok)return(lo+hi)*.5;
                 if(Math.abs(a.yError)<1e-8)return lo;
                 if(Math.abs(b.yError)<1e-8)return hi;
-                for(let i=0;i<18;i++){
+                for(let i=0;i<20;i++){
                   let mid=(lo+hi)*.5,m=sim(mid,B,S,T,V,c,false);
                   if(!m.ok)break;
-                  if(Math.abs(m.yError)<1e-7)return mid;
+                  if(Math.abs(m.yError)<1e-8)return mid;
                   if(a.yError*m.yError<=0){hi=mid;b=m}else{lo=mid;a=m}
                 }
                 return(lo+hi)*.5;
@@ -136,98 +133,45 @@ jobs:
                 return{range:NaN,ticks:-1};
               }'''
 
-              cbc2, n = re.subn(r'function sim\(P,Y,S,T,V,c,pathOn\)\{.*?\}\nfunction rf', new_sim + '\nfunction rf', cbc, count=1, flags=re.S)
+              cbc, n = re.subn(r'function sim\(P,Y,S,T,V,c,pathOn\)\{.*?\}\nfunction rf', new_sim + '\nfunction rf', cbc, count=1, flags=re.S)
               if n != 1: raise SystemExit('Could not replace realistic sim()')
-              cbc3, n = re.subn(r'function solve\(S,T,V,c,arc\)\{.*?\}\nfunction sr', new_solve + '\nfunction sr', cbc2, count=1, flags=re.S)
+              cbc, n = re.subn(r'function solve\(S,T,V,c,arc\)\{.*?\}\nfunction sr', new_solve + '\nfunction sr', cbc, count=1, flags=re.S)
               if n != 1: raise SystemExit('Could not replace realistic solve()')
-              cbc4, n = re.subn(r'function sr\(P,Y,S,V,c\)\{.*?\}\nfunction maximumRange', new_sr + '\nfunction maximumRange', cbc3, count=1, flags=re.S)
+              cbc, n = re.subn(r'function sr\(P,Y,S,V,c\)\{.*?\}\nfunction maximumRange', new_sr + '\nfunction maximumRange', cbc, count=1, flags=re.S)
               if n != 1: raise SystemExit('Could not replace realistic sr()')
-              cbc = cbc4
-
-              app = app.replace('    reset: "Reset",', '    reset: "Reset",\n    calculate: "Calculate",', 1)
-              app = app.replace('    reset: "Сброс",', '    reset: "Сброс",\n    calculate: "Рассчитать",', 1)
-              app = app.replace('    reset: "Скинути",', '    reset: "Скинути",\n    calculate: "Розрахувати",', 1)
 
               old = '  const amaxLimit = calculatorType === "mianbao" ? 89 : 60;'
-              new = '  const realisticMode = calculatorType === "cbc" && $("method")?.value === "realistic";\n  const amaxLimit = calculatorType === "mianbao" || realisticMode ? 89 : 60;'
-              if old not in app: raise SystemExit('Could not patch realistic max pitch limit')
-              app = app.replace(old, new, 1)
+              if old not in app: raise SystemExit('Could not patch realistic maximum pitch')
+              app = app.replace(old, '  const realisticMode = calculatorType === "cbc" && $("method")?.value === "realistic";\n  const amaxLimit = calculatorType === "mianbao" || realisticMode ? 89 : 60;', 1)
 
               old = '    solidFraction: num("solidFraction"),\n    windEnabled:'
-              new = '    solidFraction: num("solidFraction"),\n    barrelLength: Math.max(0, opts.length),\n    windEnabled:'
-              if old not in app: raise SystemExit('Could not pass barrel length')
-              app = app.replace(old, new, 1)
+              if old not in app: raise SystemExit('Could not add realistic barrel length')
+              app = app.replace(old, '    solidFraction: num("solidFraction"),\n    barrelLength: Math.max(0, opts.length),\n    windEnabled:', 1)
 
-              # Both duplicate updateInputMode definitions receive the same seed lock.
-              app = app.replace(
-                  '  const coordsEl = $("coordsGroup");\n  if (use) {',
-                  '  const coordsEl = $("coordsGroup");\n  const worldSeedEl = $("worldSeed");\n  if (worldSeedEl) {\n    worldSeedEl.disabled = !use;\n    worldSeedEl.title = use ? "" : "Enable coordinate input to use the world seed";\n  }\n  if (use) {'
-              )
-
-              helper = '''\n// REALISTIC_MANUAL_CALCULATE_V2\nfunction isRealisticMode() {\n  return $("calculatorType")?.value === "cbc" && $("method")?.value === "realistic";\n}\n\nfunction renderAfterInputChange() {\n  if (isRealisticMode()) {\n    clearOutputs();\n    setStatus(t("calculate"), "");\n    drawTrajectory(null, collectOptions());\n    return;\n  }\n  render();\n}\n'''
-              if 'function render() {' not in app: raise SystemExit('render() not found')
-              app = app.replace('\nfunction render() {', helper + '\nfunction render() {', 1)
+              old = 'if ($("method")) $("method").addEventListener("change", () => {\n  if ($("method").value === "realistic") syncRealisticProjectileDefaults();'
+              if old not in app: raise SystemExit('Could not patch realistic method listener')
+              app = app.replace(old, 'if ($("method")) $("method").addEventListener("change", () => {\n  if ($("method").value === "realistic") {\n    syncRealisticProjectileDefaults();\n    if (num("amax") === 60) $("amax").value = 89;\n  } else if (num("amax") === 89) {\n    $("amax").value = 60;\n  }', 1)
 
               app = app.replace('source: "CBC Realistic Ballistics 1.3.2 browser port",', 'source: "CBC Realistic Ballistics 1.3.3 browser port",', 1)
-              app = app.replace(
-                  'note: "Matches the mod\'s static seed-derived wind and aerodynamic trajectory model.",',
-                  'note: "Matches the mod trajectory model. Flight begins at the muzzle computed from cannon coordinates, solved yaw/pitch and total cannon length.",',
-                  1
-              )
+              app = app.replace('note: "Matches the mod\'s static seed-derived wind and aerodynamic trajectory model.",', 'note: "Matches the mod trajectory model. Flight begins at the muzzle computed from cannon coordinates, solved yaw/pitch and total cannon length.",', 1)
+              app = app.replace('"use strict";', '"use strict";\n// REALISTIC_MUZZLE_AND_TWO_ARCS_V1', 1)
 
-              # Language change should not launch the expensive realistic solver.
-              app = app.replace('  syncCannonVelocity();\n  render();\n}\n\nfunction fillProjectiles', '  syncCannonVelocity();\n  renderAfterInputChange();\n}\n\nfunction fillProjectiles', 1)
-
-              old_listener = '''fields.forEach((id) => {\n  const el = $(id);\n  if (!el || id === "method" || id === "projectile") return;\n  const update = () => {\n    if (id === "length") syncCannonVelocity();\n    render();\n  };\n  el.addEventListener("input", update);\n  el.addEventListener("change", update);\n});'''
-              new_listener = '''fields.forEach((id) => {\n  const el = $(id);\n  if (!el || id === "method" || id === "projectile") return;\n  const update = () => {\n    if (id === "length") syncCannonVelocity();\n    renderAfterInputChange();\n  };\n  el.addEventListener("input", update);\n  el.addEventListener("change", update);\n});'''
-              if old_listener not in app: raise SystemExit('field listener block not found')
-              app = app.replace(old_listener, new_listener, 1)
-
-              app = app.replace(
-                  'if ($("useCoords")) $("useCoords").addEventListener("change", () => { updateInputMode(); render(); });',
-                  'if ($("useCoords")) $("useCoords").addEventListener("change", () => { updateInputMode(); renderAfterInputChange(); });',
-                  1
-              )
-
-              method_old = '''if ($("method")) $("method").addEventListener("change", () => {\n  if ($("method").value === "realistic") syncRealisticProjectileDefaults();\n  syncCannonVelocity();\n  updateUIForMethod();\n  render();\n});'''
-              method_new = '''if ($("method")) $("method").addEventListener("change", () => {\n  if ($("method").value === "realistic") {\n    syncRealisticProjectileDefaults();\n    if (num("amax") === 60) $("amax").value = 89;\n  } else if (num("amax") === 89) {\n    $("amax").value = 60;\n  }\n  syncCannonVelocity();\n  updateUIForMethod();\n  updateInputMode();\n  renderAfterInputChange();\n});'''
-              if method_old not in app: raise SystemExit('method listener not found')
-              app = app.replace(method_old, method_new, 1)
-
-              app = app.replace('  updateUIForMethod();\n  render();\n});\nif ($("cannonProfile"))', '  updateUIForMethod();\n  renderAfterInputChange();\n});\nif ($("cannonProfile"))', 1)
-              app = app.replace('  syncCannonVelocity();\n  render();\n});\nif ($("calculatorType"))', '  syncCannonVelocity();\n  renderAfterInputChange();\n});\nif ($("calculatorType"))', 1)
-
-              calc_type_old = '''if ($("calculatorType")) $("calculatorType").addEventListener("change", () => {\n  if ($("calculatorType").value === "mianbao" && num("amax") === 60) $("amax").value = 89;\n  if ($("calculatorType").value === "cbc" && num("amax") === 89) $("amax").value = 60;\n  updateCalculatorType();\n  syncCannonVelocity();\n  render();\n});'''
-              calc_type_new = '''if ($("calculatorType")) $("calculatorType").addEventListener("change", () => {\n  if ($("calculatorType").value === "mianbao" && num("amax") === 60) $("amax").value = 89;\n  if ($("calculatorType").value === "cbc" && $("method")?.value !== "realistic" && num("amax") === 89) $("amax").value = 60;\n  updateCalculatorType();\n  updateInputMode();\n  syncCannonVelocity();\n  renderAfterInputChange();\n});'''
-              if calc_type_old not in app: raise SystemExit('calculator type listener not found')
-              app = app.replace(calc_type_old, calc_type_new, 1)
-
-              # Dedicated manual trigger for the expensive realistic solver.
-              app = app.replace(
-                  '$("resetBtn").addEventListener("click", resetDefaults);\napplyLanguage(lang);',
-                  '$("resetBtn").addEventListener("click", resetDefaults);\nif ($("calculateBtn")) $("calculateBtn").addEventListener("click", render);\napplyLanguage(lang);',
-                  1
-              )
-
-              button = '''\n          <button class="ghost method-realistic" type="button" id="calculateBtn" data-i18n="calculate" style="width:100%;margin-top:12px;">Calculate</button>'''
-              needle = '          </details>\n        </form>'
-              if needle not in index: raise SystemExit('form insertion point not found')
-              index = index.replace(needle, '          </details>' + button + '\n        </form>', 1)
-              index = index.replace('cbc_realistic_ballistics.js?v=20260815-4', 'cbc_realistic_ballistics.js?v=20260820-3')
-              index = index.replace('app.js?v=20260815-5', 'app.js?v=20260820-3')
+              index = index.replace('cbc_realistic_ballistics.js?v=20260815-4', 'cbc_realistic_ballistics.js?v=20260820-4')
+              index = index.replace('app.js?v=20260815-5', 'app.js?v=20260820-4')
 
               cbc_path.write_text(cbc, encoding='utf-8')
               app_path.write_text(app, encoding='utf-8')
               index_path.write_text(index, encoding='utf-8')
+          else:
+              print('Patch already present; validating only.')
           PY
 
-      - name: Validate JavaScript and solver behaviour
+      - name: Validate JavaScript and realistic solver
         shell: bash
         run: |
           node --check cbc_realistic_ballistics.js
           node --check app.js
-          grep -q 'REALISTIC_MANUAL_CALCULATE_V2' app.js
-          grep -q 'id="calculateBtn"' index.html
+          grep -q 'REALISTIC_MUZZLE_AND_TWO_ARCS_V1' app.js
           node <<'NODE'
           global.window = global;
           require('./cbc_realistic_ballistics.js');
@@ -248,6 +192,7 @@ jobs:
             minPitch:-10, maxPitch:89, maxTicks:4000, allowedMiss:1,
             barrelLength:20
           };
+
           let found = null;
           for (const range of [100,200,300,400,500,700,900,1200,1500,2000]) {
             const r = B.solve([0,64,0],[range,64,0],20,cfg,'high');
@@ -257,16 +202,16 @@ jobs:
             }
           }
           if (!found) throw new Error('No two-arc validation case found');
-          if (Math.abs(found.selected-found.high) > 1e-4) throw new Error('High arc not selected');
+          if (Math.abs(found.selected-found.high) > 1e-4) throw new Error('HIGH did not select the upper trajectory');
           console.log('Two-arc test:', found);
 
           const a = B.solve([0,64,0],[500,64,0],20,{...cfg,barrelLength:0},'low');
           const b = B.solve([0,64,0],[500,64,0],20,{...cfg,barrelLength:50},'low');
-          if (!a.low || !b.low || Math.abs(a.low.pitchDeg-b.low.pitchDeg)<1e-5) throw new Error('Muzzle offset has no effect');
-          console.log('Muzzle test:', {zero:a.low.pitchDeg,fifty:b.low.pitchDeg});
+          if (!a.low || !b.low || Math.abs(a.low.pitchDeg-b.low.pitchDeg)<1e-5) throw new Error('50 m barrel did not change the solution');
+          console.log('Muzzle-offset test:', {zero:a.low.pitchDeg,fifty:b.low.pitchDeg});
           NODE
 
-      - name: Commit patched files to PR branch
+      - name: Commit patched calculator to PR branch
         shell: bash
         run: |
           if git diff --quiet; then
@@ -276,5 +221,5 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add cbc_realistic_ballistics.js app.js index.html
-          git commit -m 'Fix realistic arcs, muzzle offset and manual calculation'
-          git push origin HEAD:${{ github.head_ref || github.ref_name }}
+          git commit -m 'Fix realistic high arc search and muzzle position'
+          git push origin HEAD:${{ github.head_ref }}
