@@ -1,0 +1,54 @@
+name: Caliber sync validation
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref }}
+
+      - name: Apply caliber sync
+        run: python3 .github/apply_caliber_sync.py
+
+      - name: Validate JavaScript and rules
+        shell: bash
+        run: |
+          node --check app.js
+          node --check cbc_realistic_ballistics.js
+          grep -q 'REALISTIC_CALIBER_SYNC_20260820_V1' cbc_realistic_ballistics.js
+          grep -Fq 'cbc_at:(?:medium_)?(?:ap|flak|he|hei|hef|heat)_rocket$/.test(v))return .2' cbc_realistic_ballistics.js
+          if grep -Fq 'cbcmoreshells:(?:normal_|extended_)' cbc_realistic_ballistics.js; then
+            echo 'Obsolete 0.4 m More Shells override is still present'
+            exit 1
+          fi
+          if grep -q 'REALISTIC_GAME_PITCH_CALIBRATION_20260820_V1' app.js; then
+            echo '+1 degree calibration marker still present'
+            exit 1
+          fi
+          if grep -q 'REALISTIC_GAME_PITCH_CORRECTION_DEG' app.js; then
+            echo '+1 degree calibration constant still present'
+            exit 1
+          fi
+          grep -Fq 'syntheticRangeOffset = Math.max(0, opts.length) * 0.5' app.js
+          grep -Fq 'worldSeed: opts.useCoords ?' app.js
+          grep -Fq 'id="calculateBtn"' index.html
+
+      - name: Commit patch to PR branch
+        shell: bash
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.js cbc_realistic_ballistics.js index.html
+          git commit -m 'Synchronize realistic projectile calibers'
+          git push origin HEAD:${{ github.head_ref }}
