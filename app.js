@@ -916,11 +916,12 @@ function collectOptions() {
   const targetZ = $("targetZ") ? num("targetZ") : 0;
 
   const horiz = Math.sqrt((targetX - cannonX) ** 2 + (targetZ - cannonZ) ** 2);
-  // CBC motors in this calculator are limited to +60; Mianbao launchers may
-  // use the full elevation range configured by the user.
+  // Keep the legacy/New Ballistics motor limit at +60. CBC Realistic may
+  // search a separate high arc up to +89 without changing its low-arc scan.
   const aminVal = num("amin");
   const amaxRaw = num("amax");
-  const amaxLimit = calculatorType === "mianbao" ? 89 : 60;
+  const realisticMode = calculatorType === "cbc" && $("method")?.value === "realistic";
+  const amaxLimit = calculatorType === "mianbao" || realisticMode ? 89 : 60;
   const amaxVal = Number.isFinite(amaxRaw) ? Math.min(amaxRaw, amaxLimit) : amaxLimit;
 
   return {
@@ -1775,7 +1776,12 @@ updateInputMode();
 
 // Ensure method/projectile changes toggle UI specifically
 if ($("method")) $("method").addEventListener("change", () => {
-  if ($("method").value === "realistic") syncRealisticProjectileDefaults();
+  if ($("method").value === "realistic") {
+    if (num("amax") === 60) $("amax").value = 89;
+    syncRealisticProjectileDefaults();
+  } else if (num("amax") === 89) {
+    $("amax").value = 60;
+  }
   syncCannonVelocity();
   updateUIForMethod();
   updateSeedVisibility();
@@ -1795,8 +1801,9 @@ if ($("cannonProfile")) $("cannonProfile").addEventListener("change", () => {
   renderAfterInputChange();
 });
 if ($("calculatorType")) $("calculatorType").addEventListener("change", () => {
-  if ($("calculatorType").value === "mianbao" && num("amax") === 60) $("amax").value = 89;
-  if ($("calculatorType").value === "cbc" && num("amax") === 89) $("amax").value = 60;
+  const realisticCbc = $("calculatorType").value === "cbc" && $("method").value === "realistic";
+  if (($("calculatorType").value === "mianbao" || realisticCbc) && num("amax") === 60) $("amax").value = 89;
+  if ($("calculatorType").value === "cbc" && !realisticCbc && num("amax") === 89) $("amax").value = 60;
   updateCalculatorType();
   updateSeedVisibility();
   syncCannonVelocity();
