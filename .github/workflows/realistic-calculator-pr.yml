@@ -1,0 +1,45 @@
+name: Realistic crossing fix
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref }}
+
+      - name: Apply crossing fix
+        run: python3 .github/fix_realistic_crossing.py
+
+      - name: Validate
+        shell: bash
+        run: |
+          node --check cbc_realistic_ballistics.js
+          node --check app.js
+          grep -q 'REALISTIC_CROSSING_INTERPOLATION_FIX_20260820_V1' cbc_realistic_ballistics.js
+          grep -Fq 'hit=[lr(x[0],n[0],f),lr(x[1],n[1],f),lr(x[2],n[2],f)]' cbc_realistic_ballistics.js
+          ! grep -Fq 'hit=[lr(px[0],n[0],f)' cbc_realistic_ballistics.js
+          ! grep -Fq 'pr=[...S]' cbc_realistic_ballistics.js
+          grep -Fq 'effectiveHorizontalRange = actualHorizontalRange - syntheticRangeOffset' app.js
+          grep -Fq 'syntheticRangeOffset = Math.max(0, opts.length) * 0.5' app.js
+          grep -Fq 'worldSeed: opts.useCoords ?' app.js
+          grep -Fq 'id="calculateBtn"' index.html
+
+      - name: Commit fix to PR branch
+        shell: bash
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cbc_realistic_ballistics.js index.html
+          git commit -m 'Fix realistic target crossing interpolation'
+          git push origin HEAD:${{ github.head_ref }}
