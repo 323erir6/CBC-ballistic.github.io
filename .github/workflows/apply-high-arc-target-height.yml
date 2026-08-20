@@ -1,0 +1,60 @@
+name: Apply High arc target-height solver
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.higharc3-trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply patch
+        run: python3 .github/apply_high_arc_target_height_fix.py
+      - name: Syntax check
+        run: |
+          node --check cbc_realistic_ballistics.js
+          node --check app.js
+      - name: Verify exact reported shot
+        run: |
+          node <<'NODE'
+          const fs=require('fs'),vm=require('vm');
+          const ctx={window:{},console}; vm.createContext(ctx);
+          vm.runInContext(fs.readFileSync('cbc_realistic_ballistics.js','utf8'),ctx);
+          const p=ctx.window.CBCRealisticBallistics;
+          const c={
+            worldSeed:'-1256779495100032119',dimensionId:'minecraft:overworld',weather:'clear',biomeTemperature:.8,
+            referenceMass:2,diameter:.875,cd:.25,gravity:9.80665,seaLevelY:64,scaleHeight:8500,
+            projectileDensity:7800,lengthCalibers:3,solidFraction:.5,windEnabled:true,windSpeed:4,windDirection:35,
+            gustSpeed:3,weatherAffectsWind:true,windRegionSize:2048,seedSalt:'0',windDirectionVariation:45,
+            windSpeedVariation:.35,rainWindBonus:5,thunderWindBonus:7,rainGustBonus:2,thunderGustBonus:5,
+            verticalTurbulence:.04,altitudeWindMultiplier:1.55,enableCoriolis:true,latitude:45,
+            enableSpinDrift:true,spinDriftFactor:.02,minPitch:-30,maxPitch:89,maxTicks:1200,allowedMiss:1
+          };
+          const S=[-321,173,536],T=[36465,168,15654],V=50;
+          const r=p.solve(S,T,V,c,'high');
+          console.log(JSON.stringify({low:r.low&&{pitch:r.low.pitchDeg,yaw:r.low.yawDeg,miss:r.low.miss},high:r.high&&{pitch:r.high.pitchDeg,yaw:r.high.yawDeg,miss:r.high.miss,ticks:r.high.ticks},selected:r.selected&&r.selected.pitchDeg},null,2));
+          if(!r.low || Math.abs(r.low.pitchDeg-18.2306)>.02) throw new Error('Low arc changed unexpectedly');
+          if(!r.high) throw new Error('High arc was not found for the reported shot');
+          if(!(r.high.pitchDeg>r.low.pitchDeg+.25)) throw new Error('High arc is not distinct from low');
+          if(!(r.high.miss<=1)) throw new Error('High arc miss exceeds 1 m');
+          const bearing=Math.atan2(T[0]-S[0],T[2]-S[2])*180/Math.PI;
+          const m=p.maximumRange(S,V,c,bearing);
+          console.log('maximumRange',m);
+          if(!m || !(m.range>60000)) throw new Error('Maximum range is still truncated');
+          NODE
+      - name: Commit generated files
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cbc_realistic_ballistics.js index.html
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Solve High arc at descending target-height crossing'
+          git push
