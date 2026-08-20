@@ -19,6 +19,7 @@ const I18N = {
     title: "Ballistic calculator",
     shotSetup: "Shot setup",
     reset: "Reset",
+    calculate: "Calculate",
     barrelLength: "Total cannon length",
     blocks: "blocks / meters",
     velocityMps: "Projectile speed",
@@ -84,6 +85,7 @@ const I18N = {
     title: "Баллистический калькулятор",
     shotSetup: "Параметры выстрела",
     reset: "Сброс",
+    calculate: "Рассчитать",
     barrelLength: "Общая длина пушки",
     blocks: "блоки / метры",
     velocityMps: "Скорость снаряда",
@@ -149,6 +151,7 @@ const I18N = {
     title: "Балістичний калькулятор",
     shotSetup: "Параметри пострілу",
     reset: "Скинути",
+    calculate: "Розрахувати",
     barrelLength: "Загальна довжина гармати",
     blocks: "блоки / метри",
     velocityMps: "Швидкість снаряда",
@@ -764,6 +767,11 @@ function updateInputMode() {
     if (heightEl) heightEl.style.display = "";
     if (coordsEl) coordsEl.style.display = "none";
   }
+
+  const realistic = $("calculatorType")?.value === "cbc" && $("method")?.value === "realistic";
+  document.querySelectorAll(".seed-coordinate-only").forEach((el) => {
+    el.style.display = use && realistic ? "" : "none";
+  });
 }
 
 function updateInputMode() {
@@ -780,6 +788,11 @@ function updateInputMode() {
     if (heightEl) heightEl.style.display = "";
     if (coordsEl) coordsEl.style.display = "none";
   }
+
+  const realistic = $("calculatorType")?.value === "cbc" && $("method")?.value === "realistic";
+  document.querySelectorAll(".seed-coordinate-only").forEach((el) => {
+    el.style.display = use && realistic ? "" : "none";
+  });
 }
 
 function simulateForPitch(pitchDeg, speedBpt, length, opts, props) {
@@ -949,7 +962,7 @@ function collectOptions() {
 
 function collectRealisticConfig(opts) {
   return {
-    worldSeed: $("worldSeed").value,
+    worldSeed: opts.useCoords ? $("worldSeed").value : "0",
     dimensionId: $("dimensionId").value || "minecraft:overworld",
     weather: $("weatherMode").value,
     biomeTemperature: num("biomeTemperature"),
@@ -968,7 +981,7 @@ function collectRealisticConfig(opts) {
     gustSpeed: num("gustSpeed"),
     weatherAffectsWind: $("weatherAffectsWind").checked,
     windRegionSize: num("windRegionSize"),
-    seedSalt: $("windSeedSalt").value,
+    seedSalt: opts.useCoords ? $("windSeedSalt").value : "0",
     windDirectionVariation: num("windDirectionVariation"),
     windSpeedVariation: num("windSpeedVariation"),
     rainWindBonus: num("rainWindBonus"),
@@ -1084,6 +1097,21 @@ function renderMianbao(opts) {
   }, null, 2);
 }
 
+// REQUESTED_ROLLBACK_PATCH_20260820_V1
+function isRealisticMode() {
+  return $("calculatorType")?.value === "cbc" && $("method")?.value === "realistic";
+}
+
+function renderAfterInputChange() {
+  if (isRealisticMode()) {
+    clearOutputs();
+    setStatus(t("calculate"), "");
+    drawTrajectory(null, collectOptions());
+    return;
+  }
+  render();
+}
+
 function render() {
   const opts = collectOptions();
   if (opts.calculatorType === "mianbao") {
@@ -1136,7 +1164,25 @@ function render() {
       return;
     }
 
-    result = physics.solve(cannon, target, opts.speedBpt, config, opts.preferArc);
+    const actualDx = target[0] - cannon[0];
+    const actualDz = target[2] - cannon[2];
+    const actualHorizontalRange = Math.hypot(actualDx, actualDz);
+    const syntheticRangeOffset = Math.max(0, opts.length) * 0.5;
+    const effectiveHorizontalRange = actualHorizontalRange - syntheticRangeOffset;
+    if (!(effectiveHorizontalRange > 0)) {
+      setStatus(t("noSolution"), "bad");
+      clearOutputs();
+      drawTrajectory(null, opts);
+      return;
+    }
+    const horizontalScale = effectiveHorizontalRange / actualHorizontalRange;
+    const calculationTarget = [
+      cannon[0] + actualDx * horizontalScale,
+      target[1],
+      cannon[2] + actualDz * horizontalScale
+    ];
+
+    result = physics.solve(cannon, calculationTarget, opts.speedBpt, config, opts.preferArc);
     chosen = result.selected;
     ok = Boolean(result.ok && chosen);
     setStatus(ok ? t("solved") : t("noSolution"), ok ? "ok" : "bad");
@@ -1176,6 +1222,10 @@ function render() {
       note: "Matches the mod's static seed-derived wind and aerodynamic trajectory model.",
       cannon,
       target,
+      calculationTarget,
+      actualHorizontalRange,
+      syntheticRangeOffset,
+      effectiveHorizontalRange,
       velocityMps: opts.speedMps,
       velocityBpt: opts.speedBpt,
       windAtMuzzleBpt: physics.windAt(cannon, config),
@@ -1626,7 +1676,7 @@ function applyLanguage(nextLang) {
   updateCalculatorType();
   updateInputMode();
   syncCannonVelocity();
-  render();
+  renderAfterInputChange();
 }
 
 function fillProjectiles(preferredProjectile) {
@@ -1737,14 +1787,14 @@ fields.forEach((id) => {
   if (!el || id === "method" || id === "projectile") return;
   const update = () => {
     if (id === "length") syncCannonVelocity();
-    render();
+    renderAfterInputChange();
   };
   el.addEventListener("input", update);
   el.addEventListener("change", update);
 });
 
 // coordinate mode toggle should update UI
-if ($("useCoords")) $("useCoords").addEventListener("change", () => { updateInputMode(); render(); });
+if ($("useCoords")) $("useCoords").addEventListener("change", () => { updateInputMode(); renderAfterInputChange(); });
 updateInputMode();
 
 // Ensure method/projectile changes toggle UI specifically
@@ -1752,37 +1802,41 @@ if ($("method")) $("method").addEventListener("change", () => {
   if ($("method").value === "realistic") syncRealisticProjectileDefaults();
   syncCannonVelocity();
   updateUIForMethod();
-  render();
+  updateInputMode();
+  renderAfterInputChange();
 });
 if ($("projectile")) $("projectile").addEventListener("change", () => {
   if ($("method").value === "realistic") syncRealisticProjectileDefaults();
   syncCannonVelocity();
   updateUIForMethod();
-  render();
+  updateInputMode();
+  renderAfterInputChange();
 });
 if ($("cannonProfile")) $("cannonProfile").addEventListener("change", () => {
   fillProjectiles($("projectile").value);
   syncRealisticProjectileDefaults();
   syncCannonVelocity();
-  render();
+  renderAfterInputChange();
 });
 if ($("calculatorType")) $("calculatorType").addEventListener("change", () => {
   if ($("calculatorType").value === "mianbao" && num("amax") === 60) $("amax").value = 89;
   if ($("calculatorType").value === "cbc" && num("amax") === 89) $("amax").value = 60;
   updateCalculatorType();
+  updateInputMode();
   syncCannonVelocity();
-  render();
+  renderAfterInputChange();
 });
 if ($("rocketLauncher")) $("rocketLauncher").addEventListener("change", () => {
   fillRocketModes();
-  render();
+  renderAfterInputChange();
 });
 if ($("rocketMode")) $("rocketMode").addEventListener("change", () => {
   syncRocketModeDefaults();
-  render();
+  renderAfterInputChange();
 });
 document.querySelectorAll("[data-lang]").forEach((btn) => {
   btn.addEventListener("click", () => applyLanguage(btn.dataset.lang));
 });
 $("resetBtn").addEventListener("click", resetDefaults);
+if ($("calculateBtn")) $("calculateBtn").addEventListener("click", render);
 applyLanguage(lang);
