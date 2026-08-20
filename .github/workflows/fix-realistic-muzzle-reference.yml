@@ -49,8 +49,7 @@ jobs:
                '    muzzleOffsetHint: "Відстань уздовж ствола від введеної точки гармати до фактичної точки появи снаряда. Це НЕ обов’язково повна довжина гармати.",'),
           ]
           for old, new in replacements:
-              if old not in app:
-                  raise SystemExit(f'I18N anchor missing: {old}')
+              if old not in app: raise SystemExit(f'I18N anchor missing: {old}')
               app = app.replace(old, new, 1)
 
           old = '  "length",\n  "speedMps",'
@@ -84,27 +83,16 @@ jobs:
           app = app.replace('// REALISTIC_MANUAL_ONLY_20260820_V1',
                             '// REALISTIC_MANUAL_ONLY_20260820_V1\n// REALISTIC_MUZZLE_REFERENCE_FIX_20260820_V1', 1)
 
-          anchor = '''          <div class="grid two method-realistic">
-            <label>
-              <span data-i18n="cannonType">Cannon</span>
-              <select id="cannonProfile"></select>
-              <small data-i18n="cannonVariantsHint">All equivalent material variants are grouped</small>
-            </label>
-            <label id="worldSeedField" class="seed-coordinate-only">
-              <span data-i18n="worldSeed">World seed</span>
-              <input id="worldSeed" type="text" inputmode="numeric" value="0">
-              <small data-i18n="worldSeedHint">Required for the exact static wind field</small>
-            </label>
-          </div>'''
-          replacement = anchor + '''
-
+          insert_before = '\n          <div id="mianbaoSetup" class="mianbao-only" hidden>'
+          muzzle_field = '''
           <label class="method-realistic">
             <span data-i18n="muzzleOffset">Muzzle offset from cannon reference</span>
             <input id="muzzleOffset" type="number" min="0" step="0.1" value="0">
             <small data-i18n="muzzleOffsetHint">Distance along the barrel from the entered cannon reference point to the actual projectile spawn point. This is NOT necessarily the total cannon length.</small>
-          </label>'''
-          if anchor not in index: raise SystemExit('realistic cannon input block missing')
-          index = index.replace(anchor, replacement, 1)
+          </label>
+'''
+          if insert_before not in index: raise SystemExit('mianbaoSetup insertion anchor missing')
+          index = index.replace(insert_before, '\n' + muzzle_field + insert_before, 1)
 
           index = re.sub(r'cbc_realistic_ballistics\.js\?v=[^"\']+', 'cbc_realistic_ballistics.js?v=20260820-7', index, count=1)
           index = re.sub(r'app\.js\?v=[^"\']+', 'app.js?v=20260820-7', index, count=1)
