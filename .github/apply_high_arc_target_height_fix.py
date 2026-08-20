@@ -5,6 +5,10 @@ index_path = Path('index.html')
 cbc = cbc_path.read_text(encoding='utf-8')
 index = index_path.read_text(encoding='utf-8')
 
+if 'REALISTIC_HIGH_ARC_TARGET_HEIGHT_20260820_V3' in cbc:
+    print('Target-height High arc solver already applied')
+    raise SystemExit(0)
+
 start = cbc.index('// REALISTIC_HIGH_ARC_ACCURACY_20260820_V2')
 end = cbc.index('function rf(P,Y,S,T,V,c)', start)
 
