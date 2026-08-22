@@ -251,6 +251,19 @@ summary::-webkit-details-marker {
   font-size: 18px;
 }
 
+.angle-radians {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.55em;
+  font-weight: 500;
+  line-height: 1.15;
+}
+
+.solution-card .angle-radians {
+  font-size: 0.28em;
+}
+
 canvas {
   width: 100%;
   height: auto;

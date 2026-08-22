@@ -283,6 +283,24 @@ function fmt(value, digits = 3) {
   return Number(Number(value).toFixed(digits)).toString();
 }
 
+function angleMarkup(degrees, digits = 4) {
+  if (!Number.isFinite(degrees)) return "-";
+  return `${fmt(degrees, digits)}°<small class="angle-radians">${fmt(rad(degrees), 6)} rad</small>`;
+}
+
+function setAngle(id, degrees, digits = 4) {
+  const element = $(id);
+  if (element) element.innerHTML = angleMarkup(degrees, digits);
+}
+
+function setDistanceAtAngle(id, distance, degrees, distanceDigits = 3, angleDigits = 2) {
+  const element = $(id);
+  if (!element) return;
+  element.innerHTML = Number.isFinite(distance) && Number.isFinite(degrees)
+    ? `${fmt(distance, distanceDigits)} m @ ${angleMarkup(degrees, angleDigits)}`
+    : "-";
+}
+
 function flinspace(start, stop, count, minValue, maxValue) {
   const result = [];
   const a = Math.max(start, minValue);
@@ -1044,14 +1062,12 @@ function renderMianbao(opts) {
   const solution = physics.solveCoordinates(dx, dy, dz, mode, solveOptions);
   const maximum = physics.maximumRange(mode, solveOptions);
 
-  $("maxDistance").textContent = maximum
-    ? `${fmt(maximum.range, 2)} m @ ${fmt(maximum.pitchDeg, 2)}°`
-    : "-";
+  setDistanceAtAngle("maxDistance", maximum?.range, maximum?.pitchDeg, 2, 2);
   $("speedBpt").textContent = `${fmt(mode.speed, 3)} m/tick / ${Math.round(mode.speed * TICKS_PER_SECOND)} m/s`;
   $("usedMethod").textContent = t("mianbaoMethod");
 
   const yawDeg = mathematicalYawFromDelta(dx, dz);
-  $("yaw").textContent = `${fmt(yawDeg, 4)}°`;
+  setAngle("yaw", yawDeg);
 
   if (!solution.ok) {
     setStatus(t("noSolution"), "bad");
@@ -1062,11 +1078,9 @@ function renderMianbao(opts) {
     drawTrajectory(null, opts);
   } else {
     setStatus(t("solved"), "ok");
-    $("chosenPitch").textContent = `${fmt(solution.selectedPitchDeg, 4)}°`;
-    $("lowPitch").textContent = `${fmt(solution.lowPitchDeg, 4)}°`;
-    $("highPitch").textContent = solution.highPitchDeg === null
-      ? "-"
-      : `${fmt(solution.highPitchDeg, 4)}°`;
+    setAngle("chosenPitch", solution.selectedPitchDeg);
+    setAngle("lowPitch", solution.lowPitchDeg);
+    setAngle("highPitch", solution.highPitchDeg);
     $("flightTime").textContent = `${fmt(solution.flightTicks, 2)} ticks / ${fmt(solution.time, 2)} s`;
     const path = physics.buildPath(
       solution.selectedPitchDeg,
@@ -1191,14 +1205,14 @@ function render() {
     chosen = result.selected;
     ok = Boolean(result.ok && chosen);
     setStatus(ok ? t("solved") : t("noSolution"), ok ? "ok" : "bad");
-    $("chosenPitch").textContent = chosen ? `${fmt(chosen.pitchDeg, 4)}°` : "-";
-    $("lowPitch").textContent = result.low ? `${fmt(result.low.pitchDeg, 4)}°` : "-";
-    $("highPitch").textContent = result.high ? `${fmt(result.high.pitchDeg, 4)}°` : "-";
+    setAngle("chosenPitch", chosen?.pitchDeg);
+    setAngle("lowPitch", result.low?.pitchDeg);
+    setAngle("highPitch", result.high?.pitchDeg);
 
     const lowMathematicalYaw = mathematicalYawForRealisticSolution(result.low);
     const highMathematicalYaw = mathematicalYawForRealisticSolution(result.high);
-    $("lowYaw").textContent = lowMathematicalYaw === null ? "-" : `${fmt(lowMathematicalYaw, 4)}°`;
-    $("highYaw").textContent = highMathematicalYaw === null ? "-" : `${fmt(highMathematicalYaw, 4)}°`;
+    setAngle("lowYaw", lowMathematicalYaw);
+    setAngle("highYaw", highMathematicalYaw);
 
     $("flightTime").textContent = chosen
       ? `${fmt(chosen.ticks, 2)} ticks / ${fmt(chosen.ticks / TICKS_PER_SECOND, 2)} s` : "-";
@@ -1208,11 +1222,10 @@ function render() {
 
     const bearing = Math.atan2(target[0] - cannon[0], target[2] - cannon[2]) * 180 / Math.PI;
     const maximum = physics.maximumRange(cannon, opts.speedBpt, config, bearing);
-    $("maxDistance").textContent = maximum && Number.isFinite(maximum.range)
-      ? `${fmt(maximum.range, 3)} m @ ${fmt(maximum.pitchDeg, 2)}°` : "-";
+    setDistanceAtAngle("maxDistance", maximum?.range, maximum?.pitchDeg, 3, 2);
     if (chosen) {
       const mathematicalYaw = mathematicalYawForRealisticSolution(chosen);
-      $("yaw").textContent = mathematicalYaw === null ? "-" : `${fmt(mathematicalYaw, 4)}°`;
+      setAngle("yaw", mathematicalYaw);
       realisticYawHandled = true;
     }
     const debugConfig = { ...config };
@@ -1270,9 +1283,9 @@ function render() {
     ok = result.ok && chosen[1] !== -1;
 
     setStatus(ok ? t("solved") : t("noSolution"), ok ? "ok" : "bad");
-    $("chosenPitch").textContent = ok && chosen[1] !== -1 ? `${fmt(chosen[1], 4)}°` : "-";
-    $("lowPitch").textContent = lowArc[1] !== -1 ? `${fmt(lowArc[1], 4)}°` : "-";
-    $("highPitch").textContent = highArc[1] !== -1 ? `${fmt(highArc[1], 4)}°` : "-";
+    setAngle("chosenPitch", ok && chosen[1] !== -1 ? chosen[1] : null);
+    setAngle("lowPitch", lowArc[1] !== -1 ? lowArc[1] : null);
+    setAngle("highPitch", highArc[1] !== -1 ? highArc[1] : null);
     $("flightTime").textContent = ok && chosen[2] !== -1 ? `${fmt(chosen[2], 2)} ticks / ${fmt(chosen[2] / TICKS_PER_SECOND, 2)} s` : "-";
     $("speedBpt").textContent = `${fmt(opts.speedBpt, 4)} m/tick`;
     $("usedMethod").textContent = t("originalFormula");
@@ -1339,9 +1352,9 @@ function render() {
     ok = result.ok && chosen[1] !== -1;
 
     setStatus(ok ? t("solved") : t("noSolution"), ok ? "ok" : "bad");
-    $("chosenPitch").textContent = ok && chosen[1] !== -1 ? `${fmt(chosen[1], 4)}°` : "-";
-    $("lowPitch").textContent = lowArcNew[1] !== -1 ? `${fmt(lowArcNew[1], 4)}°` : "-";
-    $("highPitch").textContent = highArcNew[1] !== -1 ? `${fmt(highArcNew[1], 4)}°` : "-";
+    setAngle("chosenPitch", ok && chosen[1] !== -1 ? chosen[1] : null);
+    setAngle("lowPitch", lowArcNew[1] !== -1 ? lowArcNew[1] : null);
+    setAngle("highPitch", highArcNew[1] !== -1 ? highArcNew[1] : null);
     $("flightTime").textContent = ok && chosen[2] !== -1 ? `${fmt(chosen[2], 2)} ticks / ${fmt(chosen[2] / TICKS_PER_SECOND, 2)} s` : "-";
     $("speedBpt").textContent = `${fmt(opts.speedBpt, 4)} m/tick`;
     $("usedMethod").textContent = t("newFormula");
@@ -1418,9 +1431,9 @@ function render() {
     ok = result.ok && chosen[1] !== -1;
 
     setStatus(ok ? t("solved") : t("noSolution"), ok ? "ok" : "bad");
-    $("chosenPitch").textContent = ok && chosen[1] !== -1 ? `${fmt(chosen[1], 4)}°` : "-";
-    $("lowPitch").textContent = lowArc[1] !== -1 ? `${fmt(lowArc[1], 4)}°` : "-";
-    $("highPitch").textContent = highArc[1] !== -1 ? `${fmt(highArc[1], 4)}°` : "-";
+    setAngle("chosenPitch", ok && chosen[1] !== -1 ? chosen[1] : null);
+    setAngle("lowPitch", lowArc[1] !== -1 ? lowArc[1] : null);
+    setAngle("highPitch", highArc[1] !== -1 ? highArc[1] : null);
     $("flightTime").textContent = ok && chosen[2] !== -1 ? `${fmt(chosen[2], 2)} ticks / ${fmt(chosen[2] / TICKS_PER_SECOND, 2)} s` : "-";
     $("speedBpt").textContent = `${fmt(opts.speedBpt, 4)} m/tick`;
     $("usedMethod").textContent = t("improvedMethod");
@@ -1460,7 +1473,7 @@ function render() {
     const dxYaw = target[0] - cannon[0];
     const dzYaw = target[2] - cannon[2];
     const yawDeg = mathematicalYawFromDelta(dxYaw, dzYaw);
-    $("yaw").textContent = `${fmt(yawDeg, 4)}°`;
+    setAngle("yaw", yawDeg);
   } else if (!realisticYawHandled) {
     $("yaw").textContent = "";
   }
@@ -1590,7 +1603,7 @@ function clearOutputs() {
     const dxYaw = targetX - cannonX;
     const dzYaw = targetZ - cannonZ;
     const yawDeg = mathematicalYawFromDelta(dxYaw, dzYaw);
-    yawEl.textContent = `${fmt(yawDeg, 4)}°`;
+    setAngle("yaw", yawDeg);
   } else if (yawEl) {
     yawEl.textContent = "";
   }
