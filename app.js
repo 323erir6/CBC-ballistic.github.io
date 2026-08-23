@@ -251,7 +251,8 @@ fields.push(
   "windDirectionVariation", "windSpeedVariation", "rainWindBonus",
   "thunderWindBonus", "rainGustBonus", "thunderGustBonus",
   "verticalTurbulence", "altitudeWindMultiplier", "enableCoriolis",
-  "latitude", "enableSpinDrift", "spinDriftFactor", "rocketFuelTicks"
+  "latitude", "enableSpinDrift", "spinDriftFactor", "rocketFuelTicks",
+  "rocketMaximumSpeedLossPerTick"
 );
 
 // add coordinate fields so they get input listeners
@@ -707,12 +708,17 @@ function syncRealisticProjectileDefaults() {
   $("referenceMass").value = props.referenceMass * (cannon?.massMultiplier ?? 1);
   $("projectileDiameter").value = cannon?.caliber ?? props.diameter;
   $("realisticCd").value = props.cd;
+  $("lengthCalibers").value = props.lengthCalibers ?? 3;
   const motor = window.CBCRealisticBallistics.rocketMotorProfile(
     $("cannonProfile")?.value,
     $("projectile").value
   );
   if ($("rocketFuelTicks")) {
     $("rocketFuelTicks").parentElement.style.display = motor ? "" : "none";
+    if (motor?.fuelTicks != null) $("rocketFuelTicks").value = motor.fuelTicks;
+  }
+  if ($("rocketMaximumSpeedLossPerTick")) {
+    $("rocketMaximumSpeedLossPerTick").parentElement.style.display = motor ? "" : "none";
   }
 }
 
@@ -1010,6 +1016,7 @@ function collectRealisticConfig(opts) {
       opts.projectile
     ) || null,
     rocketFuelTicks: Math.max(0, Math.floor(num("rocketFuelTicks"))),
+    rocketMaximumSpeedLossPerTick: num("rocketMaximumSpeedLossPerTick"),
     windEnabled: $("realisticWindEnabled").checked,
     windSpeed: num("windSpeed"),
     windDirection: num("windDirection"),
@@ -1769,6 +1776,7 @@ function resetDefaults() {
   $("lengthCalibers").value = 3;
   $("solidFraction").value = 0.5;
   $("rocketFuelTicks").value = 54;
+  $("rocketMaximumSpeedLossPerTick").value = 0.02;
   $("realisticWindEnabled").checked = true;
   $("windSpeed").value = 4;
   $("windDirection").value = 35;
