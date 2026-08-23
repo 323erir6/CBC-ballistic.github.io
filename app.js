@@ -251,7 +251,7 @@ fields.push(
   "windDirectionVariation", "windSpeedVariation", "rainWindBonus",
   "thunderWindBonus", "rainGustBonus", "thunderGustBonus",
   "verticalTurbulence", "altitudeWindMultiplier", "enableCoriolis",
-  "latitude", "enableSpinDrift", "spinDriftFactor"
+  "latitude", "enableSpinDrift", "spinDriftFactor", "rocketFuelTicks"
 );
 
 // add coordinate fields so they get input listeners
@@ -704,6 +704,13 @@ function syncRealisticProjectileDefaults() {
   $("referenceMass").value = props.referenceMass;
   $("projectileDiameter").value = cannon?.caliber ?? props.diameter;
   $("realisticCd").value = props.cd;
+  const motor = window.CBCRealisticBallistics.rocketMotorProfile(
+    $("cannonProfile")?.value,
+    $("projectile").value
+  );
+  if ($("rocketFuelTicks")) {
+    $("rocketFuelTicks").parentElement.style.display = motor ? "" : "none";
+  }
 }
 
 function syncCannonVelocity() {
@@ -954,6 +961,7 @@ function collectOptions() {
     missileLifetime: num("missileLifetime"),
     rocketCompensation: num("rocketCompensation"),
     projectile: $("projectile").value,
+    cannonProfile: $("cannonProfile")?.value || "manual",
     length: num("length"),
     speedMps: num("speedMps"),
     speedBpt: num("speedMps") / TICKS_PER_SECOND,
@@ -994,6 +1002,11 @@ function collectRealisticConfig(opts) {
     projectileDensity: num("projectileDensity"),
     lengthCalibers: num("lengthCalibers"),
     solidFraction: num("solidFraction"),
+    rocketMotor: window.CBCRealisticBallistics?.rocketMotorProfile(
+      opts.cannonProfile,
+      opts.projectile
+    ) || null,
+    rocketFuelTicks: Math.max(0, Math.floor(num("rocketFuelTicks"))),
     windEnabled: $("realisticWindEnabled").checked,
     windSpeed: num("windSpeed"),
     windDirection: num("windDirection"),
@@ -1752,6 +1765,7 @@ function resetDefaults() {
   $("projectileDensity").value = 7800;
   $("lengthCalibers").value = 3;
   $("solidFraction").value = 0.5;
+  $("rocketFuelTicks").value = 54;
   $("realisticWindEnabled").checked = true;
   $("windSpeed").value = 4;
   $("windDirection").value = 35;
