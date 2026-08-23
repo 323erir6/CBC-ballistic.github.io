@@ -55,7 +55,6 @@ const I18N = {
     yaw: "Selected yaw",
     lowYaw: "Low yaw",
     highYaw: "High yaw",
-    randomYawSpread: "Random yaw spread",
     usedMethod: "Used method",
     currentDistance: "Current distance",
     maxDistance: "Max distance",
@@ -124,7 +123,6 @@ const I18N = {
     yaw: "Yaw выбранной дуги",
     lowYaw: "Yaw низкой дуги",
     highYaw: "Yaw высокой дуги",
-    randomYawSpread: "Случайный разброс yaw",
     usedMethod: "Метод",
     currentDistance: "Текущая дистанция",
     maxDistance: "Максимальная дистанция",
@@ -193,7 +191,6 @@ const I18N = {
     yaw: "Yaw обраної дуги",
     lowYaw: "Yaw низької дуги",
     highYaw: "Yaw високої дуги",
-    randomYawSpread: "Випадковий розкид yaw",
     usedMethod: "Метод",
     currentDistance: "Поточна дистанція",
     maxDistance: "Максимальна дистанція",
@@ -1165,64 +1162,6 @@ function mathematicalYawForRealisticSolution(solution) {
   return normalizeMathematicalYaw(solution.yawDeg);
 }
 
-// CBC Military Supplement applies random triangular inaccuracy in
-// Entity#shoot. CBC Realistic Ballistics additionally scales that final value
-// by the physical barrel length (3 m = original, 4 m = 1/2, 5 m = 1/4,
-// 6+ m = zero). A random offset cannot be cancelled with a fixed yaw
-// correction, so expose the actual angular/range envelope instead.
-const MILITARY_PROJECTILE_SPREAD = Object.freeze({
-  "cbcmoreshells:extended_antiair_he_shell": [8, 1.1],
-  "cbcmoreshells:extended_ap_shot": [9, 0.1],
-  "cbcmoreshells:normal_antiair_he_shell": [8, 1.1],
-  "cbcmoreshells:normal_ap_shell": [8, 0.4],
-  "cbcmoreshells:normal_ap_shot": [8, 0.1],
-  "cbcmoreshells:normal_apbc_shell": [8, 0.4],
-  "cbcmoreshells:normal_he_shell": [8, 0.7],
-  "cbcmoreshells:normal_incendiary_he_shell": [8, 0.7],
-  "cbcmoreshells:normal_sap_shell": [8, 0.3]
-});
-
-const MILITARY_CANNON_SPREAD = Object.freeze({
-  military_small_single: [1.7, 1.5],
-  military_small_dual: [1.7, 1.5],
-  military_small_medium_single: [1.4, 2.5],
-  military_small_medium_dual: [1.4, 2.5],
-  military_large_single: [1.3, 2.5]
-});
-
-function renderMilitarySpreadEstimate(opts) {
-  const card = $("spreadEstimateCard");
-  const output = $("spreadEstimate");
-  if (!card || !output) return null;
-
-  const cannonId = $("cannonProfile")?.value;
-  const cannonSpread = MILITARY_CANNON_SPREAD[cannonId];
-  const projectileSpread = MILITARY_PROJECTILE_SPREAD[opts.projectile];
-  if (!cannonSpread || !projectileSpread) {
-    card.style.display = "none";
-    output.textContent = "-";
-    return null;
-  }
-
-  // The first two blocks are the breech/chamber; CBC's launch position uses
-  // the same length - 2 convention. Remaining blocks reduce addon spread.
-  const barrelMetres = Math.max(0, Math.floor(opts.length) - 2);
-  const [materialMinimum, reductionPerBarrel] = cannonSpread;
-  const [projectileBase, projectileMinimum] = projectileSpread;
-  const addonSpread = projectileMinimum
-    + Math.max(projectileBase - reductionPerBarrel * barrelMetres, materialMinimum);
-
-  let lengthMultiplier = 1;
-  if (barrelMetres >= 6) lengthMultiplier = 0;
-  else if (barrelMetres > 3) lengthMultiplier = 1 / (2 ** (barrelMetres - 3));
-
-  const yawSpreadDeg = addonSpread * lengthMultiplier;
-  const missRadius = Math.tan(rad(yawSpreadDeg)) * Math.max(0, opts.distance);
-  card.style.display = "";
-  output.innerHTML = `±${angleMarkup(yawSpreadDeg)} / ±${fmt(missRadius, 1)} m`;
-  return { barrelMetres, addonSpread, lengthMultiplier, yawSpreadDeg, missRadius };
-}
-
 function render() {
   const opts = collectOptions();
   if (opts.calculatorType === "mianbao") {
@@ -1302,7 +1241,6 @@ function render() {
       setAngle("yaw", mathematicalYaw);
       realisticYawHandled = true;
     }
-    const randomSpread = renderMilitarySpreadEstimate(opts);
     const debugConfig = { ...config };
     delete debugConfig._windSeed;
     const compactSolution = {
@@ -1324,7 +1262,6 @@ function render() {
       windAtMuzzleBpt: physics.windAt(cannon, config),
       config: debugConfig,
       solution: compactSolution,
-      randomSpread,
       maximumRange: maximum
     };
   } else if (method === "original") {
@@ -1665,11 +1602,9 @@ function computeMaxDistance(opts, method = "original", props = null) {
 }
 
 function clearOutputs() {
-  ["chosenPitch", "lowPitch", "highPitch", "lowYaw", "highYaw", "spreadEstimate", "flightTime", "speedBpt", "usedMethod", "currentDistance", "maxDistance"].forEach((id) => {
+  ["chosenPitch", "lowPitch", "highPitch", "lowYaw", "highYaw", "flightTime", "speedBpt", "usedMethod", "currentDistance", "maxDistance"].forEach((id) => {
     $(id).textContent = "-";
   });
-  const spreadCard = $("spreadEstimateCard");
-  if (spreadCard) spreadCard.style.display = "none";
   const yawEl = $("yaw");
   const useCoordsEl = $("useCoords");
   const useCoords = useCoordsEl ? useCoordsEl.checked : false;
