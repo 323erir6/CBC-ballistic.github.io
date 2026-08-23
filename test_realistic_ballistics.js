@@ -7,6 +7,16 @@ require("./cbc_realistic_ballistics.js");
 
 const ballistics = window.CBCRealisticBallistics;
 
+const largeCannon = ballistics.CANNONS.find(
+  (entry) => entry.id === "military_large_single"
+);
+assert(largeCannon, "Military Supplement Large Cannon profile is missing");
+assert.strictEqual(
+  largeCannon.massMultiplier,
+  1.89,
+  "Large Cannon must use its launch material's effective mass multiplier"
+);
+
 function config(overrides = {}) {
   return {
     worldSeed: "0",

@@ -701,7 +701,10 @@ function syncRealisticProjectileDefaults() {
   if (!props) return;
   const cannon = window.CBCRealisticBallistics.CANNONS
     .find((entry) => entry.id === $("cannonProfile")?.value);
-  $("referenceMass").value = props.referenceMass;
+  // Military Supplement stores the launcher material's durability/mass
+  // modifier on the projectile before it enters the world. The Java mod uses
+  // this effective mass, so the calculator must use it for drag and wind too.
+  $("referenceMass").value = props.referenceMass * (cannon?.massMultiplier ?? 1);
   $("projectileDiameter").value = cannon?.caliber ?? props.diameter;
   $("realisticCd").value = props.cd;
   const motor = window.CBCRealisticBallistics.rocketMotorProfile(
