@@ -2,7 +2,7 @@
 
 const TICKS_PER_SECOND = 20;
 
-// cbc_realistic_ballistics.js is generated from the actual 6.8.3 modpack
+// cbc_realistic_ballistics.js mirrors the current 6.9.3 server flight model.
 // registries/properties. Keep a tiny CBC-only fallback for offline editing.
 const PROJECTILES = window.CBCRealisticBallistics
   ? window.CBCRealisticBallistics.PROJECTILES.map((entry) => entry.id)
@@ -243,7 +243,7 @@ const fields = [
 fields.push("missileLifetime", "rocketCompensation");
 
 fields.push(
-  "worldSeed", "dimensionId", "weatherMode", "biomeTemperature",
+  "dimensionId", "weatherMode", "biomeTemperature",
   "referenceMass", "projectileDiameter", "realisticCd", "realisticGravity",
   "seaLevelY", "scaleHeight", "projectileDensity", "lengthCalibers",
   "solidFraction", "realisticWindEnabled", "windSpeed", "windDirection",
@@ -718,7 +718,7 @@ function syncRealisticProjectileDefaults() {
     if (motor?.fuelTicks != null) $("rocketFuelTicks").value = motor.fuelTicks;
   }
   if ($("rocketMaximumSpeedLossPerTick")) {
-    $("rocketMaximumSpeedLossPerTick").parentElement.style.display = motor ? "" : "none";
+    $("rocketMaximumSpeedLossPerTick").parentElement.style.display = props.rocket ? "" : "none";
   }
 }
 
@@ -998,7 +998,6 @@ function collectRealisticConfig(opts) {
     // CBC spawns a big-cannon projectile two blocks behind the first point
     // outside the muzzle; launch() mirrors that exact placement.
     barrelLength: Math.max(0, opts.length),
-    worldSeed: opts.useCoords ? $("worldSeed").value : "0",
     dimensionId: $("dimensionId").value || "minecraft:overworld",
     weather: $("weatherMode").value,
     biomeTemperature: num("biomeTemperature"),
@@ -1015,6 +1014,11 @@ function collectRealisticConfig(opts) {
       opts.cannonProfile,
       opts.projectile
     ) || null,
+    // Some projectile families, such as CBC Enhanced Shells' large rocket,
+    // have rocket aerodynamics but manage their motor inside the addon. This
+    // flag applies the correct drag cap without adding a second motor.
+    rocketAerodynamics: window.CBCRealisticBallistics
+      ?.projectileDefaults(opts.projectile)?.rocket === true,
     rocketFuelTicks: Math.max(0, Math.floor(num("rocketFuelTicks"))),
     rocketMaximumSpeedLossPerTick: num("rocketMaximumSpeedLossPerTick"),
     windEnabled: $("realisticWindEnabled").checked,
@@ -1762,7 +1766,6 @@ function resetDefaults() {
   $("iterations").value = 5;
   $("elements").value = 20;
   $("checkImpossible").checked = true;
-  $("worldSeed").value = 0;
   $("dimensionId").value = "minecraft:overworld";
   $("weatherMode").value = "clear";
   $("biomeTemperature").value = 0.8;

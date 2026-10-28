@@ -17,6 +17,41 @@ assert.strictEqual(
   "Large Cannon must use its launch material's effective mass multiplier"
 );
 
+const enhancedProjectiles = ballistics.PROJECTILES.filter(
+  (entry) => entry.id.startsWith("cbc_enhanced_shells:")
+);
+assert.equal(enhancedProjectiles.length, 90, "all Enhanced Shells cannon projectiles must be listed");
+assert.deepEqual(
+  ballistics.ENHANCED_PROPELLANTS,
+  {
+    powder_charge_mk1: 2.5,
+    powder_charge_mk2: 3,
+    powder_charge_mk3: 3.5,
+    powder_charge_mk4: 4,
+    powder_charge_mk5: 4.5
+  },
+  "Enhanced Shells propellant strengths must match its munition properties"
+);
+const enhancedAp5 = ballistics.projectileDefaults("cbc_enhanced_shells:ap_shell_mk5");
+assert.equal(enhancedAp5.referenceMass, 120);
+assert.equal(enhancedAp5.diameter, 0.875);
+assert.equal(enhancedAp5.cd, 0.22);
+assert.equal(
+  ballistics.isProjectileCompatible("cbc_big_cannon", enhancedAp5.id),
+  true
+);
+const enhancedRocket = ballistics.projectileDefaults("cbc_enhanced_shells:rocket");
+assert.equal(enhancedRocket.referenceMass, 10);
+assert.equal(enhancedRocket.diameter, 0.875);
+assert.equal(enhancedRocket.cd, 0.12);
+assert.equal(enhancedRocket.lengthCalibers, 12);
+assert.equal(enhancedRocket.rocket, true);
+assert.equal(
+  ballistics.rocketMotorProfile("cbc_big_cannon", enhancedRocket.id),
+  null,
+  "the addon-owned Enhanced rocket motor must not be simulated twice"
+);
+
 function config(overrides = {}) {
   return {
     worldSeed: "0",
@@ -59,6 +94,40 @@ function config(overrides = {}) {
     ...overrides
   };
 }
+
+const highAltitudeDensity = ballistics.airDensity(100000, config());
+assert.ok(highAltitudeDensity < 0.02, "the removed artificial atmosphere floor must stay removed");
+assert.ok(highAltitudeDensity >= 1e-9, "the numerical density floor must remain positive");
+
+const windSampleA = ballistics.windAt(
+  [1234, 900, -5678],
+  config({
+    worldSeed: "1",
+    seedSalt: "17",
+    windEnabled: true,
+    windSpeed: 4,
+    gustSpeed: 3,
+    windDirectionVariation: 45,
+    windSpeedVariation: 0.35
+  })
+);
+const windSampleB = ballistics.windAt(
+  [1234, 900, -5678],
+  config({
+    worldSeed: "999999999999",
+    seedSalt: "17",
+    windEnabled: true,
+    windSpeed: 4,
+    gustSpeed: 3,
+    windDirectionVariation: 45,
+    windSpeedVariation: 0.35
+  })
+);
+assert.deepEqual(
+  windSampleA,
+  windSampleB,
+  "the public wind seed must not depend on Minecraft's private world seed"
+);
 
 function analyticAngles(range, height, velocity, gravityPerTick) {
   const discriminant = velocity ** 4
