@@ -241,6 +241,7 @@ const fields = [
 ];
 
 fields.push("missileLifetime", "rocketCompensation");
+fields.push("trajectoryCorrectionModule");
 
 fields.push(
   "dimensionId", "weatherMode", "biomeTemperature",
@@ -963,6 +964,11 @@ function collectOptions() {
   const realisticMode = calculatorType === "cbc" && $("method")?.value === "realistic";
   const amaxLimit = calculatorType === "mianbao" || realisticMode ? 89 : 60;
   const amaxVal = Number.isFinite(amaxRaw) ? Math.min(amaxRaw, amaxLimit) : amaxLimit;
+  const muzzleSpeedMps = num("speedMps");
+  const hasCorrectionFins = Boolean($("trajectoryCorrectionModule")?.checked);
+  // The installed tail module multiplies launch speed by sqrt(1.10). Every
+  // solver must receive the same effective velocity as the in-game round.
+  const trajectorySpeedMultiplier = hasCorrectionFins ? Math.sqrt(1.10) : 1;
 
   return {
     calculatorType,
@@ -972,8 +978,11 @@ function collectOptions() {
     projectile: $("projectile").value,
     cannonProfile: $("cannonProfile")?.value || "manual",
     length: num("length"),
-    speedMps: num("speedMps"),
-    speedBpt: num("speedMps") / TICKS_PER_SECOND,
+    speedMps: muzzleSpeedMps,
+    muzzleSpeedBpt: muzzleSpeedMps / TICKS_PER_SECOND,
+    speedBpt: muzzleSpeedMps / TICKS_PER_SECOND * trajectorySpeedMultiplier,
+    hasCorrectionFins,
+    trajectorySpeedMultiplier,
     distance: useCoords ? horiz : num("distance"),
     heightDelta: useCoords ? (targetY - cannonY) : num("heightDelta"),
     preferArc: $("preferArc").value,
@@ -1766,6 +1775,7 @@ function resetDefaults() {
   $("iterations").value = 5;
   $("elements").value = 20;
   $("checkImpossible").checked = true;
+  $("trajectoryCorrectionModule").checked = false;
   $("dimensionId").value = "minecraft:overworld";
   $("weatherMode").value = "clear";
   $("biomeTemperature").value = 0.8;
